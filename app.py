@@ -1123,21 +1123,41 @@ def show_service_work():
         
         for i in range(num_customers):
             st.markdown(f"**고객 {i+1}**")
-            cols = st.columns(4)
-            with cols[0]:
+            
+            # 1행: 이름, 이메일
+            row1 = st.columns(2)
+            with row1[0]:
                 name = st.text_input("이름", key=f"manual_name_{i}", placeholder="홍길동")
-            with cols[1]:
-                age = st.number_input("나이", min_value=1, max_value=120, value=30, key=f"manual_age_{i}")
-            with cols[2]:
-                birth = st.text_input("생년월일시", key=f"manual_birth_{i}", placeholder="1990-01-01 09:30")
-            with cols[3]:
+            with row1[1]:
                 email = st.text_input("이메일", key=f"manual_email_{i}", placeholder="example@email.com")
             
+            # 2행: 생년월일, 음력/양력
+            row2 = st.columns([2, 1])
+            with row2[0]:
+                birth_date = st.date_input("생년월일", key=f"manual_birth_{i}",
+                                          value=datetime(1990, 1, 1).date())
+            with row2[1]:
+                calendar_type = st.radio("음력/양력", ["양력", "음력"], horizontal=True, key=f"manual_cal_{i}")
+            
+            # 3행: 태어난 시간
+            row3 = st.columns([1, 1, 1])
+            with row3[0]:
+                birth_hour = st.selectbox("시", list(range(1, 13)), index=8, key=f"manual_hour_{i}")
+            with row3[1]:
+                birth_min = st.selectbox("분", list(range(0, 60, 5)), index=0, key=f"manual_min_{i}")
+            with row3[2]:
+                ampm = st.radio("오전/오후", ["오전", "오후"], horizontal=True, key=f"manual_ampm_{i}")
+            
             if name:
+                # 시간 포맷팅
+                birth_date_str = birth_date.strftime("%Y-%m-%d")
+                birth_time_str = f"{ampm} {birth_hour}시 {birth_min:02d}분"
+                
                 manual_customers.append({
                     "이름": name,
-                    "나이": age,
-                    "생년월일시": birth,
+                    "생년월일": birth_date_str,
+                    "음력양력": calendar_type,
+                    "태어난시간": birth_time_str,
                     "이메일": email
                 })
             
@@ -1168,16 +1188,25 @@ def show_service_work():
                 cover_name = f"{manual_customers[0]['이름']}님 & {manual_customers[1]['이름']}님"  # 표지용: "홍길동님 & 김철수님"
                 combined_data = {
                     "고객1_이름": manual_customers[0]['이름'],
-                    "고객1_나이": manual_customers[0]['나이'],
-                    "고객1_생년월일시": manual_customers[0]['생년월일시'],
+                    "고객1_생년월일": manual_customers[0]['생년월일'],
+                    "고객1_음력양력": manual_customers[0]['음력양력'],
+                    "고객1_태어난시간": manual_customers[0]['태어난시간'],
                     "고객1_이메일": manual_customers[0]['이메일'],
                     "고객2_이름": manual_customers[1]['이름'],
-                    "고객2_나이": manual_customers[1]['나이'],
-                    "고객2_생년월일시": manual_customers[1]['생년월일시'],
+                    "고객2_생년월일": manual_customers[1]['생년월일'],
+                    "고객2_음력양력": manual_customers[1]['음력양력'],
+                    "고객2_태어난시간": manual_customers[1]['태어난시간'],
                     "고객2_이메일": manual_customers[1]['이메일'],
                 }
             
             st.markdown("**📋 입력된 고객**")
+            
+            # 상세 정보 표시
+            for idx, cust in enumerate(manual_customers):
+                info_text = f"**{cust['이름']}** | {cust['생년월일']} ({cust['음력양력']}) | {cust['태어난시간']}"
+                st.caption(info_text)
+            
+            st.markdown("---")
             
             # 상태 표시
             is_done = st.session_state.manual_completed
