@@ -96,6 +96,14 @@ class Service(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
+    # 폰트 설정
+    font_family = Column(String(50), default="NanumGothic")  # 폰트 종류
+    font_size_title = Column(Integer, default=24)    # 대제목 크기
+    font_size_subtitle = Column(Integer, default=16) # 소제목 크기
+    font_size_body = Column(Integer, default=12)     # 본문 크기
+    letter_spacing = Column(Integer, default=0)      # 자간 (%)
+    line_height = Column(Integer, default=180)       # 행간 (%)
+    
     # 관계
     owner = relationship("User", back_populates="services")
     chapters = relationship("Chapter", back_populates="service", cascade="all, delete-orphan")
