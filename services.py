@@ -1,15 +1,36 @@
 # -*- coding: utf-8 -*-
 """
-📦 서비스 관리
-서비스 추가/수정/삭제, 시스템 설정
+📦 서비스 관리 + 자료실
 """
 
-from database import SessionLocal, Service, SystemConfig
+from database import SessionLocal, Service, SystemConfig, ChapterLibrary, GuidelineLibrary
 from datetime import datetime
 
 # ============================================
-# 서비스 CRUD
+# 서비스 조회
 # ============================================
+
+def _service_to_dict(s) -> dict:
+    """Service 객체를 dict로 변환"""
+    return {
+        "id": s.id,
+        "name": s.name,
+        "description": s.description,
+        "owner_id": s.owner_id,
+        "is_active": s.is_active,
+        "font_family": s.font_family or "NanumGothic",
+        "font_size_title": s.font_size_title or 24,
+        "font_size_subtitle": s.font_size_subtitle or 16,
+        "font_size_body": s.font_size_body or 12,
+        "letter_spacing": s.letter_spacing or 0,
+        "line_height": s.line_height or 180,
+        "char_width": s.char_width or 100,
+        "margin_top": s.margin_top or 25,
+        "margin_bottom": s.margin_bottom or 25,
+        "margin_left": s.margin_left or 25,
+        "margin_right": s.margin_right or 25,
+    }
+
 
 def get_all_services(include_inactive=False) -> list:
     """모든 서비스 조회"""
@@ -23,22 +44,7 @@ def get_all_services(include_inactive=False) -> list:
             query = query.filter(Service.is_active == True)
         
         services = query.order_by(Service.created_at.desc()).all()
-        return [
-            {
-                "id": s.id,
-                "name": s.name,
-                "description": s.description,
-                "owner_id": s.owner_id,
-                "is_active": s.is_active,
-                "font_family": s.font_family or "NanumGothic",
-                "font_size_title": s.font_size_title or 24,
-                "font_size_subtitle": s.font_size_subtitle or 16,
-                "font_size_body": s.font_size_body or 12,
-                "letter_spacing": s.letter_spacing or 0,
-                "line_height": s.line_height or 180,
-            }
-            for s in services
-        ]
+        return [_service_to_dict(s) for s in services]
     except Exception as e:
         print(f"서비스 조회 오류: {e}")
         return []
@@ -47,7 +53,7 @@ def get_all_services(include_inactive=False) -> list:
 
 
 def get_admin_services() -> list:
-    """관리자 공용 서비스 조회 (owner_id가 NULL인 것)"""
+    """관리자 공용 서비스 조회"""
     if not SessionLocal:
         return []
     
@@ -57,23 +63,7 @@ def get_admin_services() -> list:
             Service.owner_id == None,
             Service.is_active == True
         ).order_by(Service.created_at.desc()).all()
-        
-        return [
-            {
-                "id": s.id,
-                "name": s.name,
-                "description": s.description,
-                "owner_id": s.owner_id,
-                "is_active": s.is_active,
-                "font_family": s.font_family or "NanumGothic",
-                "font_size_title": s.font_size_title or 24,
-                "font_size_subtitle": s.font_size_subtitle or 16,
-                "font_size_body": s.font_size_body or 12,
-                "letter_spacing": s.letter_spacing or 0,
-                "line_height": s.line_height or 180,
-            }
-            for s in services
-        ]
+        return [_service_to_dict(s) for s in services]
     except Exception as e:
         print(f"서비스 조회 오류: {e}")
         return []
@@ -92,23 +82,7 @@ def get_user_services(user_id: int) -> list:
             Service.owner_id == user_id,
             Service.is_active == True
         ).order_by(Service.created_at.desc()).all()
-        
-        return [
-            {
-                "id": s.id,
-                "name": s.name,
-                "description": s.description,
-                "owner_id": s.owner_id,
-                "is_active": s.is_active,
-                "font_family": s.font_family or "NanumGothic",
-                "font_size_title": s.font_size_title or 24,
-                "font_size_subtitle": s.font_size_subtitle or 16,
-                "font_size_body": s.font_size_body or 12,
-                "letter_spacing": s.letter_spacing or 0,
-                "line_height": s.line_height or 180,
-            }
-            for s in services
-        ]
+        return [_service_to_dict(s) for s in services]
     except Exception as e:
         print(f"서비스 조회 오류: {e}")
         return []
@@ -116,34 +90,17 @@ def get_user_services(user_id: int) -> list:
         db.close()
 
 
-def get_service_by_id(service_id: int) -> dict:
-    """서비스 ID로 조회"""
-    if not SessionLocal:
-        return None
-    
-    db = SessionLocal()
-    try:
-        service = db.query(Service).filter(Service.id == service_id).first()
-        if service:
-            return {
-                "id": service.id,
-                "name": service.name,
-                "description": service.description,
-                "owner_id": service.owner_id,
-                "is_active": service.is_active,
-            }
-        return None
-    except:
-        return None
-    finally:
-        db.close()
-
+# ============================================
+# 서비스 CRUD
+# ============================================
 
 def add_service(name: str, description: str = "", owner_id: int = None,
                 font_family: str = "NanumGothic", font_size_title: int = 24,
                 font_size_subtitle: int = 16, font_size_body: int = 12,
-                letter_spacing: int = 0, line_height: int = 180) -> dict:
-    """서비스 추가 (owner_id=None이면 관리자 공용)"""
+                letter_spacing: int = 0, line_height: int = 180,
+                char_width: int = 100, margin_top: int = 25, margin_bottom: int = 25,
+                margin_left: int = 25, margin_right: int = 25) -> dict:
+    """서비스 추가"""
     if not SessionLocal:
         return {"success": False, "error": "데이터베이스 연결 실패"}
     
@@ -152,7 +109,6 @@ def add_service(name: str, description: str = "", owner_id: int = None,
     
     db = SessionLocal()
     try:
-        # 새 서비스 생성
         new_service = Service(
             name=name.strip(),
             description=description.strip() if description else "",
@@ -163,24 +119,30 @@ def add_service(name: str, description: str = "", owner_id: int = None,
             font_size_subtitle=font_size_subtitle,
             font_size_body=font_size_body,
             letter_spacing=letter_spacing,
-            line_height=line_height
+            line_height=line_height,
+            char_width=char_width,
+            margin_top=margin_top,
+            margin_bottom=margin_bottom,
+            margin_left=margin_left,
+            margin_right=margin_right
         )
         
         db.add(new_service)
         db.commit()
         
         return {"success": True, "message": f"'{name}' 서비스가 추가되었습니다.", "id": new_service.id}
-    
     except Exception as e:
         db.rollback()
-        return {"success": False, "error": f"서비스 추가 실패: {str(e)}"}
+        return {"success": False, "error": str(e)}
     finally:
         db.close()
 
 
 def update_service(service_id: int, name: str = None, description: str = None, is_active: bool = None,
                    font_family: str = None, font_size_title: int = None, font_size_subtitle: int = None,
-                   font_size_body: int = None, letter_spacing: int = None, line_height: int = None) -> dict:
+                   font_size_body: int = None, letter_spacing: int = None, line_height: int = None,
+                   char_width: int = None, margin_top: int = None, margin_bottom: int = None,
+                   margin_left: int = None, margin_right: int = None) -> dict:
     """서비스 수정"""
     if not SessionLocal:
         return {"success": False, "error": "데이터베이스 연결 실패"}
@@ -193,43 +155,44 @@ def update_service(service_id: int, name: str = None, description: str = None, i
         
         if name is not None:
             service.name = name.strip()
-        
         if description is not None:
             service.description = description.strip()
-        
         if is_active is not None:
             service.is_active = is_active
-        
         if font_family is not None:
             service.font_family = font_family
-        
         if font_size_title is not None:
             service.font_size_title = font_size_title
-        
         if font_size_subtitle is not None:
             service.font_size_subtitle = font_size_subtitle
-        
         if font_size_body is not None:
             service.font_size_body = font_size_body
-        
         if letter_spacing is not None:
             service.letter_spacing = letter_spacing
-        
         if line_height is not None:
             service.line_height = line_height
+        if char_width is not None:
+            service.char_width = char_width
+        if margin_top is not None:
+            service.margin_top = margin_top
+        if margin_bottom is not None:
+            service.margin_bottom = margin_bottom
+        if margin_left is not None:
+            service.margin_left = margin_left
+        if margin_right is not None:
+            service.margin_right = margin_right
         
         db.commit()
         return {"success": True, "message": "서비스가 수정되었습니다."}
-    
     except Exception as e:
         db.rollback()
-        return {"success": False, "error": f"서비스 수정 실패: {str(e)}"}
+        return {"success": False, "error": str(e)}
     finally:
         db.close()
 
 
 def delete_service(service_id: int) -> dict:
-    """서비스 삭제 (실제 삭제가 아닌 비활성화)"""
+    """서비스 삭제 (soft delete)"""
     if not SessionLocal:
         return {"success": False, "error": "데이터베이스 연결 실패"}
     
@@ -241,57 +204,10 @@ def delete_service(service_id: int) -> dict:
         
         service.is_active = False
         db.commit()
-        
-        return {"success": True, "message": f"'{service.name}' 서비스가 비활성화되었습니다."}
-    
+        return {"success": True, "message": "서비스가 삭제되었습니다."}
     except Exception as e:
         db.rollback()
-        return {"success": False, "error": f"서비스 삭제 실패: {str(e)}"}
-    finally:
-        db.close()
-
-
-def restore_service(service_id: int) -> dict:
-    """서비스 복구 (활성화)"""
-    if not SessionLocal:
-        return {"success": False, "error": "데이터베이스 연결 실패"}
-    
-    db = SessionLocal()
-    try:
-        service = db.query(Service).filter(Service.id == service_id).first()
-        if not service:
-            return {"success": False, "error": "서비스를 찾을 수 없습니다."}
-        
-        service.is_active = True
-        db.commit()
-        
-        return {"success": True, "message": f"'{service.name}' 서비스가 복구되었습니다."}
-    
-    except Exception as e:
-        db.rollback()
-        return {"success": False, "error": f"서비스 복구 실패: {str(e)}"}
-    finally:
-        db.close()
-
-
-def reorder_services(service_ids: list) -> dict:
-    """서비스 순서 변경"""
-    if not SessionLocal:
-        return {"success": False, "error": "데이터베이스 연결 실패"}
-    
-    db = SessionLocal()
-    try:
-        for idx, service_id in enumerate(service_ids):
-            service = db.query(Service).filter(Service.id == service_id).first()
-            if service:
-                service.order = idx + 1
-        
-        db.commit()
-        return {"success": True, "message": "서비스 순서가 변경되었습니다."}
-    
-    except Exception as e:
-        db.rollback()
-        return {"success": False, "error": f"순서 변경 실패: {str(e)}"}
+        return {"success": False, "error": str(e)}
     finally:
         db.close()
 
@@ -300,7 +216,13 @@ def reorder_services(service_ids: list) -> dict:
 # 시스템 설정
 # ============================================
 
-def get_system_config(key: str, default=None):
+class ConfigKeys:
+    ADMIN_API_KEY = "admin_api_key"
+    ADMIN_GMAIL = "admin_gmail"
+    ADMIN_GMAIL_PASSWORD = "admin_gmail_password"
+
+
+def get_system_config(key: str, default: str = "") -> str:
     """시스템 설정 조회"""
     if not SessionLocal:
         return default
@@ -323,47 +245,232 @@ def set_system_config(key: str, value: str) -> dict:
     db = SessionLocal()
     try:
         config = db.query(SystemConfig).filter(SystemConfig.key == key).first()
-        
         if config:
             config.value = value
-            config.updated_at = datetime.utcnow()
         else:
             config = SystemConfig(key=key, value=value)
             db.add(config)
-        
         db.commit()
-        return {"success": True, "message": "설정이 저장되었습니다."}
-    
+        return {"success": True}
     except Exception as e:
         db.rollback()
-        return {"success": False, "error": f"설정 저장 실패: {str(e)}"}
+        return {"success": False, "error": str(e)}
     finally:
         db.close()
 
 
-def get_all_system_configs() -> dict:
-    """모든 시스템 설정 조회"""
+# ============================================
+# 자료실 - 목차
+# ============================================
+
+def get_chapter_library(user_id: int = None, category: str = None) -> list:
+    """목차 자료실 조회"""
     if not SessionLocal:
-        return {}
+        return []
     
     db = SessionLocal()
     try:
-        configs = db.query(SystemConfig).all()
-        return {c.key: c.value for c in configs}
-    except:
-        return {}
+        query = db.query(ChapterLibrary).filter(ChapterLibrary.is_active == True)
+        
+        if user_id:
+            # 사용자 것 + 공용
+            query = query.filter((ChapterLibrary.user_id == user_id) | (ChapterLibrary.user_id == None))
+        
+        if category:
+            query = query.filter(ChapterLibrary.category == category)
+        
+        items = query.order_by(ChapterLibrary.created_at.desc()).all()
+        return [
+            {
+                "id": item.id,
+                "user_id": item.user_id,
+                "title": item.title,
+                "content": item.content,
+                "category": item.category,
+                "created_at": item.created_at,
+                "updated_at": item.updated_at,
+            }
+            for item in items
+        ]
+    except Exception as e:
+        print(f"목차 자료실 조회 오류: {e}")
+        return []
+    finally:
+        db.close()
+
+
+def add_chapter_library(title: str, content: str = "", category: str = None, user_id: int = None) -> dict:
+    """목차 자료실에 추가"""
+    if not SessionLocal:
+        return {"success": False, "error": "데이터베이스 연결 실패"}
+    
+    db = SessionLocal()
+    try:
+        item = ChapterLibrary(
+            user_id=user_id,
+            title=title.strip(),
+            content=content.strip() if content else "",
+            category=category
+        )
+        db.add(item)
+        db.commit()
+        return {"success": True, "id": item.id}
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": str(e)}
+    finally:
+        db.close()
+
+
+def update_chapter_library(item_id: int, title: str = None, content: str = None, category: str = None) -> dict:
+    """목차 자료실 수정"""
+    if not SessionLocal:
+        return {"success": False, "error": "데이터베이스 연결 실패"}
+    
+    db = SessionLocal()
+    try:
+        item = db.query(ChapterLibrary).filter(ChapterLibrary.id == item_id).first()
+        if not item:
+            return {"success": False, "error": "항목을 찾을 수 없습니다."}
+        
+        if title is not None:
+            item.title = title.strip()
+        if content is not None:
+            item.content = content.strip()
+        if category is not None:
+            item.category = category
+        
+        db.commit()
+        return {"success": True}
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": str(e)}
+    finally:
+        db.close()
+
+
+def delete_chapter_library(item_id: int) -> dict:
+    """목차 자료실에서 삭제"""
+    if not SessionLocal:
+        return {"success": False, "error": "데이터베이스 연결 실패"}
+    
+    db = SessionLocal()
+    try:
+        item = db.query(ChapterLibrary).filter(ChapterLibrary.id == item_id).first()
+        if item:
+            item.is_active = False
+            db.commit()
+        return {"success": True}
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": str(e)}
     finally:
         db.close()
 
 
 # ============================================
-# 시스템 설정 키 상수
+# 자료실 - 지침
 # ============================================
 
-class ConfigKeys:
-    ADMIN_API_KEY = "admin_api_key"
-    ADMIN_GMAIL = "admin_gmail"
-    ADMIN_GMAIL_PASSWORD = "admin_gmail_password"
-    DEFAULT_API_LIMIT = "default_api_limit"
-    KAKAO_CHANNEL_ID = "kakao_channel_id"
-    KAKAO_API_KEY = "kakao_api_key"
+def get_guideline_library(user_id: int = None, category: str = None) -> list:
+    """지침 자료실 조회"""
+    if not SessionLocal:
+        return []
+    
+    db = SessionLocal()
+    try:
+        query = db.query(GuidelineLibrary).filter(GuidelineLibrary.is_active == True)
+        
+        if user_id:
+            query = query.filter((GuidelineLibrary.user_id == user_id) | (GuidelineLibrary.user_id == None))
+        
+        if category:
+            query = query.filter(GuidelineLibrary.category == category)
+        
+        items = query.order_by(GuidelineLibrary.created_at.desc()).all()
+        return [
+            {
+                "id": item.id,
+                "user_id": item.user_id,
+                "title": item.title,
+                "content": item.content,
+                "category": item.category,
+                "created_at": item.created_at,
+                "updated_at": item.updated_at,
+            }
+            for item in items
+        ]
+    except Exception as e:
+        print(f"지침 자료실 조회 오류: {e}")
+        return []
+    finally:
+        db.close()
+
+
+def add_guideline_library(title: str, content: str, category: str = None, user_id: int = None) -> dict:
+    """지침 자료실에 추가"""
+    if not SessionLocal:
+        return {"success": False, "error": "데이터베이스 연결 실패"}
+    
+    db = SessionLocal()
+    try:
+        item = GuidelineLibrary(
+            user_id=user_id,
+            title=title.strip(),
+            content=content.strip(),
+            category=category
+        )
+        db.add(item)
+        db.commit()
+        return {"success": True, "id": item.id}
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": str(e)}
+    finally:
+        db.close()
+
+
+def update_guideline_library(item_id: int, title: str = None, content: str = None, category: str = None) -> dict:
+    """지침 자료실 수정"""
+    if not SessionLocal:
+        return {"success": False, "error": "데이터베이스 연결 실패"}
+    
+    db = SessionLocal()
+    try:
+        item = db.query(GuidelineLibrary).filter(GuidelineLibrary.id == item_id).first()
+        if not item:
+            return {"success": False, "error": "항목을 찾을 수 없습니다."}
+        
+        if title is not None:
+            item.title = title.strip()
+        if content is not None:
+            item.content = content.strip()
+        if category is not None:
+            item.category = category
+        
+        db.commit()
+        return {"success": True}
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": str(e)}
+    finally:
+        db.close()
+
+
+def delete_guideline_library(item_id: int) -> dict:
+    """지침 자료실에서 삭제"""
+    if not SessionLocal:
+        return {"success": False, "error": "데이터베이스 연결 실패"}
+    
+    db = SessionLocal()
+    try:
+        item = db.query(GuidelineLibrary).filter(GuidelineLibrary.id == item_id).first()
+        if item:
+            item.is_active = False
+            db.commit()
+        return {"success": True}
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": str(e)}
+    finally:
+        db.close()
