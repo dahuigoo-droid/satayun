@@ -107,6 +107,7 @@ defaults = {
     'generated_pdfs': {},
     'selected_product_type': 'ready',
     'selected_service_id': None,
+    'selected_customers': set(),
 }
 
 for key, val in defaults.items():
@@ -254,15 +255,18 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
         from reportlab.lib.units import mm
         from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
         from reportlab.lib.colors import black
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from PIL import Image as PILImage
         
         buffer = BytesIO()
         page_width, page_height = A4
         
         # 마진 설정
-        left_margin = 25*mm
-        right_margin = 25*mm
-        top_margin = 30*mm
-        bottom_margin = 30*mm
+        left_margin = 20*mm
+        right_margin = 20*mm
+        top_margin = 20*mm
+        bottom_margin = 20*mm
         
         doc = SimpleDocTemplate(
             buffer, pagesize=A4,
@@ -274,44 +278,91 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
         available_width = page_width - left_margin - right_margin
         available_height = page_height - top_margin - bottom_margin
         
-        # 이미지 크기 (마진 고려하여 약간 작게)
-        img_width = available_width - 10*mm
-        img_height = available_height - 20*mm
+        # 한글 폰트 등록 시도
+        font_name = 'Helvetica'
+        font_registered = False
+        
+        try:
+            # 시스템 한글 폰트 경로들
+            font_paths = [
+                '/usr/share/fonts/truetype/nanum/NanumGothic.ttf',
+                '/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf',
+                '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+                '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+                'NanumGothic.ttf',  # 로컬 폴더
+            ]
+            for fp in font_paths:
+                if os.path.exists(fp):
+                    pdfmetrics.registerFont(TTFont('KoreanFont', fp))
+                    font_name = 'KoreanFont'
+                    font_registered = True
+                    break
+            
+            # 폰트가 없으면 다운로드 시도
+            if not font_registered:
+                import urllib.request
+                font_url = "https://github.com/googlefonts/nanum-gothic/raw/main/fonts/NanumGothic-Regular.ttf"
+                local_font = "NanumGothic.ttf"
+                if not os.path.exists(local_font):
+                    urllib.request.urlretrieve(font_url, local_font)
+                pdfmetrics.registerFont(TTFont('KoreanFont', local_font))
+                font_name = 'KoreanFont'
+        except Exception as font_err:
+            print(f"폰트 로드 실패: {font_err}")
         
         # 스타일
         title_style = ParagraphStyle('Title', fontSize=24, alignment=TA_CENTER, 
-                                     spaceAfter=30, textColor=black, fontName='Helvetica-Bold')
+                                     spaceAfter=30, textColor=black, fontName=font_name)
         chapter_style = ParagraphStyle('Chapter', fontSize=16, spaceBefore=20, 
-                                       spaceAfter=15, textColor=black, fontName='Helvetica-Bold')
-        body_style = ParagraphStyle('Body', fontSize=font_size, leading=font_size*1.5,
-                                    alignment=TA_JUSTIFY, spaceAfter=12, textColor=black)
-        page_style = ParagraphStyle('Page', fontSize=10, alignment=TA_CENTER, textColor=black)
+                                       spaceAfter=15, textColor=black, fontName=font_name)
+        body_style = ParagraphStyle('Body', fontSize=font_size, leading=font_size*1.8,
+                                    alignment=TA_JUSTIFY, spaceAfter=12, textColor=black, fontName=font_name)
+        page_style = ParagraphStyle('Page', fontSize=10, alignment=TA_CENTER, textColor=black, fontName=font_name)
         
         story = []
+        
+        def get_image_with_aspect_ratio(img_path, max_width, max_height):
+            """이미지 비율 유지하면서 크기 조정"""
+            try:
+                with PILImage.open(img_path) as pil_img:
+                    orig_width, orig_height = pil_img.size
+                
+                # 비율 계산
+                width_ratio = max_width / orig_width
+                height_ratio = max_height / orig_height
+                ratio = min(width_ratio, height_ratio)
+                
+                new_width = orig_width * ratio
+                new_height = orig_height * ratio
+                
+                img = Image(img_path, width=new_width, height=new_height)
+                img.hAlign = 'CENTER'
+                return img
+            except:
+                return None
         
         # ===== 표지 =====
         cover_path = templates.get('cover')
         if cover_path and os.path.exists(cover_path):
-            try:
-                img = Image(cover_path, width=img_width, height=img_height)
-                img.hAlign = 'CENTER'
+            img = get_image_with_aspect_ratio(cover_path, available_width, available_height)
+            if img:
                 story.append(img)
-            except:
+            else:
                 story.append(Spacer(1, 80*mm))
-                story.append(Paragraph(f"🔮 {customer_name}님의 운세", title_style))
+                story.append(Paragraph(f"{customer_name}님의 운세", title_style))
         else:
             story.append(Spacer(1, 80*mm))
-            story.append(Paragraph(f"🔮 {customer_name}님의 운세", title_style))
+            story.append(Paragraph(f"{customer_name}님의 운세", title_style))
             story.append(Spacer(1, 20*mm))
             story.append(Paragraph(datetime.now().strftime("%Y년 %m월 %d일"), 
-                                  ParagraphStyle('Date', fontSize=14, alignment=TA_CENTER)))
+                                  ParagraphStyle('Date', fontSize=14, alignment=TA_CENTER, fontName=font_name)))
         
         story.append(PageBreak())
         
         # ===== 본문 =====
         for idx, chapter in enumerate(chapters_content):
             safe_title = chapter['title'].replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-            story.append(Paragraph(f"📌 {safe_title}", chapter_style))
+            story.append(Paragraph(f"● {safe_title}", chapter_style))
             
             content = chapter['content']
             for para in content.split('\n'):
@@ -329,11 +380,10 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
         story.append(PageBreak())
         info_path = templates.get('info')
         if info_path and os.path.exists(info_path):
-            try:
-                img = Image(info_path, width=img_width, height=img_height)
-                img.hAlign = 'CENTER'
+            img = get_image_with_aspect_ratio(info_path, available_width, available_height)
+            if img:
                 story.append(img)
-            except:
+            else:
                 story.append(Spacer(1, 80*mm))
                 story.append(Paragraph("감사합니다", title_style))
         else:
@@ -860,21 +910,44 @@ def show_service_work():
         
         st.markdown("---")
         
-        # 고객 목록 헤더
-        header_cols = st.columns([3, 4, 1, 1])
-        header_cols[0].markdown("**이름**")
-        header_cols[1].markdown("**진행률**")
-        header_cols[2].markdown("**상태**")
-        header_cols[3].markdown("**다운로드**")
+        # 선택 상태 초기화
+        if 'selected_customers' not in st.session_state:
+            st.session_state.selected_customers = set(range(len(df)))
+        
+        # 전체 선택/해제
+        col_all1, col_all2 = st.columns([1, 4])
+        with col_all1:
+            select_all = st.checkbox("전체 선택", value=len(st.session_state.selected_customers) == len(df), key="select_all")
+            if select_all:
+                st.session_state.selected_customers = set(range(len(df)))
+            elif len(st.session_state.selected_customers) == len(df):
+                st.session_state.selected_customers = set()
         
         st.markdown("---")
+        
+        # 고객 목록 헤더
+        header_cols = st.columns([0.5, 2.5, 3, 1, 1])
+        header_cols[0].markdown("**선택**")
+        header_cols[1].markdown("**이름**")
+        header_cols[2].markdown("**진행률**")
+        header_cols[3].markdown("**상태**")
+        header_cols[4].markdown("**다운**")
         
         # 고객 목록
         for idx, row in df.iterrows():
             cust_name = row[name_col]
             is_done = idx in st.session_state.completed_customers
+            progress_val = st.session_state.get(f'progress_{idx}', 0)
             
-            col1, col2, col3, col4 = st.columns([3, 4, 1, 1])
+            col0, col1, col2, col3, col4 = st.columns([0.5, 2.5, 3, 1, 1])
+            
+            with col0:
+                checked = st.checkbox("", value=idx in st.session_state.selected_customers, 
+                                     key=f"chk_{idx}", label_visibility="collapsed")
+                if checked:
+                    st.session_state.selected_customers.add(idx)
+                else:
+                    st.session_state.selected_customers.discard(idx)
             
             with col1:
                 st.write(f"**{cust_name}**")
@@ -883,11 +956,11 @@ def show_service_work():
                 if is_done:
                     st.progress(1.0, text="100%")
                 else:
-                    st.progress(0.0, text="0%")
+                    st.progress(progress_val, text=f"{int(progress_val * 100)}%")
             
             with col3:
                 if is_done:
-                    st.markdown('<span class="badge-done">✅ 완료</span>', unsafe_allow_html=True)
+                    st.markdown("✅ 완료")
             
             with col4:
                 if is_done:
@@ -899,28 +972,27 @@ def show_service_work():
         st.markdown("---")
         
         # 변환 버튼
+        selected_count = len(st.session_state.selected_customers)
         done_count = len(st.session_state.completed_customers)
         total_count = len(df)
         
-        st.info(f"📊 완료: {done_count}/{total_count}")
+        # 선택된 것 중 미완료 항목
+        pending_selected = [i for i in st.session_state.selected_customers 
+                          if i not in st.session_state.completed_customers]
         
-        if st.button("🚀 PDF 생성 시작", type="primary", use_container_width=True):
-            pending = [i for i in range(len(df)) if i not in st.session_state.completed_customers]
-            
-            if not pending:
-                st.warning("생성할 고객이 없습니다.")
+        st.info(f"📊 선택: {selected_count}명 | 완료: {done_count}/{total_count}")
+        
+        if st.button(f"🚀 선택한 {len(pending_selected)}명 PDF 생성", type="primary", use_container_width=True):
+            if not pending_selected:
+                st.warning("생성할 고객을 선택하세요.")
             else:
-                progress_bar = st.progress(0, text="준비 중...")
                 status = st.empty()
                 
-                for i, idx in enumerate(pending):
+                for i, idx in enumerate(pending_selected):
                     row = df.iloc[idx]
                     cust_name = row[name_col]
                     
-                    # 진행률 계산
-                    progress = (i + 1) / len(pending)
-                    progress_bar.progress(progress, text=f"{int(progress * 100)}%")
-                    status.text(f"📝 {cust_name} 생성 중... ({i+1}/{len(pending)})")
+                    status.text(f"📝 {cust_name} 생성 중... ({i+1}/{len(pending_selected)})")
                     
                     pdf_bytes = generate_pdf_for_customer(
                         row.to_dict(),
