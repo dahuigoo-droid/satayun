@@ -73,7 +73,6 @@ st.markdown("""
 defaults = {
     'logged_in': False, 'user': None, 'customers_df': None,
     'completed_customers': {}, 'generated_pdfs': {}, 'selected_customers': set(),
-    'progress_values': {},  # 각 고객별 진행률
 }
 for key, val in defaults.items():
     if key not in st.session_state:
@@ -388,6 +387,53 @@ def generate_pdf_for_customer(customer_data: dict, service: dict, api_key: str,
             progress = (i + 1) / total_chapters
             progress_callback(customer_idx, progress)
     
+    return create_pdf_document(customer_name, chapters_content, templates, font_settings)
+
+
+def generate_pdf_with_progress(customer_data: dict, service: dict, api_key: str,
+                               progress_bar, detail_text) -> bytes:
+    """고객용 PDF 생성 - 실시간 진행률 표시"""
+    service_id = service['id']
+    chapters = get_chapters_by_service(service_id)
+    guidelines = get_guidelines_by_service(service_id)
+    guideline_text = guidelines[0]['content'] if guidelines else "친절하고 긍정적인 톤으로 작성하세요."
+    
+    templates_list = get_templates_by_service(service_id)
+    templates = {t['template_type']: t['image_path'] for t in templates_list 
+                 if t.get('image_path') and os.path.exists(t['image_path'])}
+    
+    name_col = None
+    for col in ['이름', 'name', 'Name', '성명', '고객명']:
+        if col in customer_data:
+            name_col = col
+            break
+    customer_name = customer_data.get(name_col, "고객") if name_col else "고객"
+    
+    font_settings = {k: service.get(k, v) for k, v in 
+                     {"font_family": "NanumGothic", "font_size_title": 24, "font_size_subtitle": 16,
+                      "font_size_body": 12, "letter_spacing": 0, "line_height": 180, "char_width": 100,
+                      "margin_top": 25, "margin_bottom": 25, "margin_left": 25, "margin_right": 25}.items()}
+    
+    chapters_content = []
+    total_chapters = len(chapters)
+    
+    # 초기 진행률 0%
+    progress_bar.progress(0.0, text="0%")
+    detail_text.caption("준비 중...")
+    
+    for i, ch in enumerate(chapters):
+        # 현재 챕터 표시
+        detail_text.caption(f"📝 {ch['title']} 작성 중...")
+        
+        content = generate_content_with_gpt(api_key, ch['title'], guideline_text, customer_data)
+        chapters_content.append({"title": ch['title'], "content": content})
+        
+        # 진행률 실시간 업데이트
+        progress = (i + 1) / total_chapters
+        progress_bar.progress(progress, text=f"{int(progress * 100)}%")
+        time.sleep(0.1)  # 시각적 효과
+    
+    detail_text.caption("📄 PDF 생성 중...")
     return create_pdf_document(customer_name, chapters_content, templates, font_settings)
 
 # ============================================
@@ -909,7 +955,6 @@ def show_service_work():
         df = pd.read_excel(uploaded)
         st.session_state.customers_df = df
         st.session_state.selected_customers = set(range(len(df)))
-        st.session_state.progress_values = {i: 0.0 for i in range(len(df))}
         st.success(f"✅ {len(df)}명 로드됨")
     
     if st.session_state.customers_df is not None:
@@ -937,29 +982,24 @@ def show_service_work():
             if st.button("🔄 초기화", use_container_width=True):
                 st.session_state.completed_customers = {}
                 st.session_state.generated_pdfs = {}
-                st.session_state.progress_values = {i: 0.0 for i in range(len(df))}
                 st.session_state.selected_customers = set(range(len(df)))
                 st.rerun()
         
         st.markdown("---")
         
         # 헤더
-        header_cols = st.columns([0.5, 2.5, 3, 1, 1])
+        header_cols = st.columns([0.5, 2.5, 2, 1, 1])
         header_cols[0].markdown("**선택**")
         header_cols[1].markdown("**이름**")
-        header_cols[2].markdown("**진행률**")
-        header_cols[3].markdown("**상태**")
+        header_cols[2].markdown("**상태**")
+        header_cols[3].markdown("**완료**")
         header_cols[4].markdown("**다운**")
-        
-        # 고객 목록 - 진행률 표시용 placeholder
-        progress_placeholders = {}
         
         for idx, row in df.iterrows():
             cust_name = row[name_col]
             is_done = idx in st.session_state.completed_customers
-            progress_val = st.session_state.progress_values.get(idx, 0.0)
             
-            col0, col1, col2, col3, col4 = st.columns([0.5, 2.5, 3, 1, 1])
+            col0, col1, col2, col3, col4 = st.columns([0.5, 2.5, 2, 1, 1])
             
             with col0:
                 checked = st.checkbox("", value=idx in st.session_state.selected_customers,
@@ -976,12 +1016,11 @@ def show_service_work():
                 if is_done:
                     st.progress(1.0, text="100%")
                 else:
-                    progress_placeholders[idx] = st.empty()
-                    progress_placeholders[idx].progress(progress_val, text=f"{int(progress_val * 100)}%")
+                    st.progress(0.0, text="대기")
             
             with col3:
                 if is_done:
-                    st.markdown("✅ 완료")
+                    st.markdown("✅")
             
             with col4:
                 if is_done:
@@ -1001,31 +1040,36 @@ def show_service_work():
             if not pending_selected:
                 st.warning("생성할 고객을 선택하세요.")
             else:
+                # 진행 상황 표시 영역
                 status_area = st.empty()
-                
-                def update_progress(customer_idx, progress):
-                    """진행률 업데이트 콜백"""
-                    st.session_state.progress_values[customer_idx] = progress
+                current_progress_bar = st.empty()
+                current_detail = st.empty()
                 
                 for i, idx in enumerate(pending_selected):
                     row = df.iloc[idx]
                     cust_name = row[name_col]
-                    status_area.text(f"📝 {cust_name} 생성 중... ({i+1}/{len(pending_selected)})")
                     
-                    # 진행률 점진적 업데이트
-                    pdf_bytes = generate_pdf_for_customer(
+                    status_area.markdown(f"### 📝 {cust_name} 생성 중... ({i+1}/{len(pending_selected)})")
+                    
+                    # 이 고객의 PDF 생성 (진행바 직접 업데이트)
+                    pdf_bytes = generate_pdf_with_progress(
                         row.to_dict(), selected_service, api_key,
-                        progress_callback=update_progress, customer_idx=idx
+                        current_progress_bar, current_detail
                     )
                     
                     if pdf_bytes:
                         st.session_state.completed_customers[idx] = True
                         st.session_state.generated_pdfs[idx] = pdf_bytes
-                        st.session_state.progress_values[idx] = 1.0
                         st.toast(f"🔔 {cust_name} 완료!")
+                    
+                    current_progress_bar.progress(1.0, text="100% 완료")
+                    time.sleep(0.3)
                 
-                status_area.text("✅ 모든 PDF 생성 완료!")
+                status_area.markdown("### ✅ 모든 PDF 생성 완료!")
+                current_progress_bar.empty()
+                current_detail.empty()
                 st.balloons()
+                time.sleep(1)
                 st.rerun()
 
 # ============================================
