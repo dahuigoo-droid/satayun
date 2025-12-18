@@ -30,6 +30,12 @@ def get_all_services(include_inactive=False) -> list:
                 "description": s.description,
                 "owner_id": s.owner_id,
                 "is_active": s.is_active,
+                "font_family": s.font_family or "NanumGothic",
+                "font_size_title": s.font_size_title or 24,
+                "font_size_subtitle": s.font_size_subtitle or 16,
+                "font_size_body": s.font_size_body or 12,
+                "letter_spacing": s.letter_spacing or 0,
+                "line_height": s.line_height or 180,
             }
             for s in services
         ]
@@ -59,6 +65,12 @@ def get_admin_services() -> list:
                 "description": s.description,
                 "owner_id": s.owner_id,
                 "is_active": s.is_active,
+                "font_family": s.font_family or "NanumGothic",
+                "font_size_title": s.font_size_title or 24,
+                "font_size_subtitle": s.font_size_subtitle or 16,
+                "font_size_body": s.font_size_body or 12,
+                "letter_spacing": s.letter_spacing or 0,
+                "line_height": s.line_height or 180,
             }
             for s in services
         ]
@@ -88,6 +100,12 @@ def get_user_services(user_id: int) -> list:
                 "description": s.description,
                 "owner_id": s.owner_id,
                 "is_active": s.is_active,
+                "font_family": s.font_family or "NanumGothic",
+                "font_size_title": s.font_size_title or 24,
+                "font_size_subtitle": s.font_size_subtitle or 16,
+                "font_size_body": s.font_size_body or 12,
+                "letter_spacing": s.letter_spacing or 0,
+                "line_height": s.line_height or 180,
             }
             for s in services
         ]
@@ -121,7 +139,10 @@ def get_service_by_id(service_id: int) -> dict:
         db.close()
 
 
-def add_service(name: str, description: str = "", owner_id: int = None) -> dict:
+def add_service(name: str, description: str = "", owner_id: int = None,
+                font_family: str = "NanumGothic", font_size_title: int = 24,
+                font_size_subtitle: int = 16, font_size_body: int = 12,
+                letter_spacing: int = 0, line_height: int = 180) -> dict:
     """서비스 추가 (owner_id=None이면 관리자 공용)"""
     if not SessionLocal:
         return {"success": False, "error": "데이터베이스 연결 실패"}
@@ -136,7 +157,13 @@ def add_service(name: str, description: str = "", owner_id: int = None) -> dict:
             name=name.strip(),
             description=description.strip() if description else "",
             owner_id=owner_id,
-            is_active=True
+            is_active=True,
+            font_family=font_family,
+            font_size_title=font_size_title,
+            font_size_subtitle=font_size_subtitle,
+            font_size_body=font_size_body,
+            letter_spacing=letter_spacing,
+            line_height=line_height
         )
         
         db.add(new_service)
@@ -151,7 +178,9 @@ def add_service(name: str, description: str = "", owner_id: int = None) -> dict:
         db.close()
 
 
-def update_service(service_id: int, name: str = None, description: str = None, is_active: bool = None) -> dict:
+def update_service(service_id: int, name: str = None, description: str = None, is_active: bool = None,
+                   font_family: str = None, font_size_title: int = None, font_size_subtitle: int = None,
+                   font_size_body: int = None, letter_spacing: int = None, line_height: int = None) -> dict:
     """서비스 수정"""
     if not SessionLocal:
         return {"success": False, "error": "데이터베이스 연결 실패"}
@@ -170,6 +199,24 @@ def update_service(service_id: int, name: str = None, description: str = None, i
         
         if is_active is not None:
             service.is_active = is_active
+        
+        if font_family is not None:
+            service.font_family = font_family
+        
+        if font_size_title is not None:
+            service.font_size_title = font_size_title
+        
+        if font_size_subtitle is not None:
+            service.font_size_subtitle = font_size_subtitle
+        
+        if font_size_body is not None:
+            service.font_size_body = font_size_body
+        
+        if letter_spacing is not None:
+            service.letter_spacing = letter_spacing
+        
+        if line_height is not None:
+            service.line_height = line_height
         
         db.commit()
         return {"success": True, "message": "서비스가 수정되었습니다."}
