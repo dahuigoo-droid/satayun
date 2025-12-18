@@ -258,11 +258,25 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
         buffer = BytesIO()
         page_width, page_height = A4
         
+        # 마진 설정
+        left_margin = 25*mm
+        right_margin = 25*mm
+        top_margin = 30*mm
+        bottom_margin = 30*mm
+        
         doc = SimpleDocTemplate(
             buffer, pagesize=A4,
-            leftMargin=25*mm, rightMargin=25*mm,
-            topMargin=30*mm, bottomMargin=30*mm
+            leftMargin=left_margin, rightMargin=right_margin,
+            topMargin=top_margin, bottomMargin=bottom_margin
         )
+        
+        # 사용 가능한 영역 계산
+        available_width = page_width - left_margin - right_margin
+        available_height = page_height - top_margin - bottom_margin
+        
+        # 이미지 크기 (마진 고려하여 약간 작게)
+        img_width = available_width - 10*mm
+        img_height = available_height - 20*mm
         
         # 스타일
         title_style = ParagraphStyle('Title', fontSize=24, alignment=TA_CENTER, 
@@ -279,9 +293,8 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
         cover_path = templates.get('cover')
         if cover_path and os.path.exists(cover_path):
             try:
-                img = Image(cover_path, width=page_width-50*mm, height=page_height-60*mm)
+                img = Image(cover_path, width=img_width, height=img_height)
                 img.hAlign = 'CENTER'
-                story.append(Spacer(1, 10*mm))
                 story.append(img)
             except:
                 story.append(Spacer(1, 80*mm))
@@ -317,9 +330,8 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
         info_path = templates.get('info')
         if info_path and os.path.exists(info_path):
             try:
-                img = Image(info_path, width=page_width-50*mm, height=page_height-60*mm)
+                img = Image(info_path, width=img_width, height=img_height)
                 img.hAlign = 'CENTER'
-                story.append(Spacer(1, 10*mm))
                 story.append(img)
             except:
                 story.append(Spacer(1, 80*mm))
