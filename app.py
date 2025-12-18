@@ -272,14 +272,17 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
         
         c = canvas.Canvas(buffer, pagesize=A4)
         
+        # 내지 배경 이미지 경로
+        bg_path = templates.get('background')
+        
         # 1. 표지
         cover_path = templates.get('cover')
         if cover_path and os.path.exists(cover_path):
             try:
                 c.drawImage(cover_path, 0, 0, width=page_width, height=page_height)
-                # 표지 이미지 위에 고객 이름 표시 (상단 중앙)
+                # 표지 하단에 고객 이름 표시
                 c.setFont(font_name, title_size)
-                c.drawCentredString(page_width/2, page_height - 80, f"{customer_name}의 운세")
+                c.drawCentredString(page_width/2, 80, f"{customer_name}의 운세")
             except:
                 c.setFont(font_name, title_size)
                 c.drawCentredString(page_width/2, page_height/2, f"{customer_name}의 운세")
@@ -290,6 +293,13 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
         
         # 2. 본문
         for idx, chapter in enumerate(chapters_content):
+            # 내지 배경 이미지 그리기
+            if bg_path and os.path.exists(bg_path):
+                try:
+                    c.drawImage(bg_path, 0, 0, width=page_width, height=page_height)
+                except:
+                    pass
+            
             y_pos = page_height - margin_top
             max_width = page_width - margin_left - margin_right
             
@@ -316,6 +326,12 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
                                 c.setFont(font_name, 10)
                                 c.drawCentredString(page_width/2, 15*mm, f"- {idx + 2} -")
                                 c.showPage()
+                                # 새 페이지에도 내지 배경 적용
+                                if bg_path and os.path.exists(bg_path):
+                                    try:
+                                        c.drawImage(bg_path, 0, 0, width=page_width, height=page_height)
+                                    except:
+                                        pass
                                 y_pos = page_height - margin_top
                                 c.setFont(font_name, body_size)
                             c.drawString(margin_left, y_pos, current_line)
@@ -326,6 +342,12 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
                         c.setFont(font_name, 10)
                         c.drawCentredString(page_width/2, 15*mm, f"- {idx + 2} -")
                         c.showPage()
+                        # 새 페이지에도 내지 배경 적용
+                        if bg_path and os.path.exists(bg_path):
+                            try:
+                                c.drawImage(bg_path, 0, 0, width=page_width, height=page_height)
+                            except:
+                                pass
                         y_pos = page_height - margin_top
                         c.setFont(font_name, body_size)
                     c.drawString(margin_left, y_pos, current_line)
@@ -1135,7 +1157,9 @@ def show_service_work():
             row2 = st.columns([2, 1])
             with row2[0]:
                 birth_date = st.date_input("생년월일", key=f"manual_birth_{i}",
-                                          value=datetime(1990, 1, 1).date())
+                                          value=datetime(1990, 1, 1).date(),
+                                          min_value=datetime(1920, 1, 1).date(),
+                                          max_value=datetime(2025, 12, 31).date())
             with row2[1]:
                 calendar_type = st.radio("음력/양력", ["양력", "음력"], horizontal=True, key=f"manual_cal_{i}")
             
