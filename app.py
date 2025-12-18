@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 🔮 사주/연애/타로 PDF 자동 생성 플랫폼
-UI 개선 버전
+폰트 설정 + A4 규격 + 개별상품 수정 버전
 """
 
 import streamlit as st
@@ -29,11 +29,12 @@ from auth import (
 )
 from services import (
     get_all_services, get_admin_services, get_user_services,
-    add_service, delete_service, get_system_config, set_system_config, ConfigKeys
+    add_service, update_service, delete_service, 
+    get_system_config, set_system_config, ConfigKeys
 )
 from contents import (
-    get_chapters_by_service, add_chapter, delete_chapter,
-    get_guidelines_by_service, add_guideline, update_guideline,
+    get_chapters_by_service, add_chapter, update_chapter, delete_chapter,
+    get_guidelines_by_service, add_guideline, update_guideline, delete_guideline,
     get_templates_by_service, add_template, delete_template
 )
 from notices import get_all_notices, create_notice, update_notice, delete_notice, toggle_pin_notice
@@ -47,51 +48,24 @@ st.markdown("""
     .main-title { text-align: center; color: #fff; font-size: 2.5rem; margin-bottom: 10px; }
     .sub-title { text-align: center; color: #888; font-size: 1rem; margin-bottom: 30px; }
     
-    /* 사이드바 라디오 버튼 숨기기 */
-    section[data-testid="stSidebar"] .stRadio > div > label > div:first-child {
-        display: none !important;
-    }
+    section[data-testid="stSidebar"] .stRadio > div > label > div:first-child { display: none !important; }
     section[data-testid="stSidebar"] .stRadio > div > label {
-        cursor: pointer !important;
-        padding: 10px 15px;
-        border-radius: 8px;
-        margin: 2px 0;
+        cursor: pointer !important; padding: 10px 15px; border-radius: 8px; margin: 2px 0;
     }
-    section[data-testid="stSidebar"] .stRadio > div > label:hover {
-        background: rgba(255,255,255,0.1);
-    }
+    section[data-testid="stSidebar"] .stRadio > div > label:hover { background: rgba(255,255,255,0.1); }
     
-    /* 섹션 제목 */
     .section-title {
         display: inline-block;
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 8px 20px;
-        border-radius: 20px;
-        color: white;
-        font-weight: bold;
-        font-size: 1rem;
-        margin: 15px 0 10px 0;
+        padding: 8px 20px; border-radius: 20px; color: white; font-weight: bold;
+        font-size: 1rem; margin: 15px 0 10px 0;
     }
+    .divider { border-top: 1px solid rgba(255,255,255,0.1); margin: 20px 0; }
     
-    /* 구분선 */
-    .divider {
-        border-top: 1px solid rgba(255,255,255,0.1);
-        margin: 20px 0;
-    }
-    
-    /* 등급 배지 */
     .badge-admin { background: #dc3545; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; }
     .badge-level1 { background: #6c757d; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; }
     .badge-level2 { background: #17a2b8; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; }
     .badge-level3 { background: #28a745; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; }
-    
-    /* 완료 배지 */
-    .badge-done { background: #28a745; color: white; padding: 3px 10px; border-radius: 10px; font-size: 0.8rem; }
-    
-    /* 큰 텍스트 영역 */
-    .stTextArea textarea {
-        min-height: 200px !important;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -105,8 +79,6 @@ defaults = {
     'customers_df': None,
     'completed_customers': {},
     'generated_pdfs': {},
-    'selected_product_type': 'ready',
-    'selected_service_id': None,
     'selected_customers': set(),
 }
 
@@ -129,7 +101,7 @@ except Exception as e:
     st.error(f"DB 초기화 오류: {e}")
 
 # ============================================
-# 디렉토리
+# 디렉토리 / 상수
 # ============================================
 
 UPLOAD_DIR = "uploads"
@@ -139,6 +111,12 @@ for d in [UPLOAD_DIR, OUTPUT_DIR]:
         os.makedirs(d)
 
 TEMPLATE_TYPES = {"cover": "📕 표지", "background": "📄 내지", "info": "📋 안내지"}
+
+FONT_OPTIONS = {
+    "NanumGothic": "나눔고딕",
+    "NanumMyeongjo": "나눔명조",
+    "NanumBarunGothic": "나눔바른고딕",
+}
 
 # ============================================
 # 유틸리티
@@ -164,13 +142,11 @@ def save_uploaded_file(uploaded_file, prefix: str) -> str:
 def get_api_key() -> str:
     user = st.session_state.user
     admin_api = get_system_config(ConfigKeys.ADMIN_API_KEY, "")
-    
     if user.get('api_mode') == 'separated' and user.get('api_key'):
         return user['api_key']
     return admin_api
 
 def play_sound():
-    """완료 시 종소리"""
     st.markdown("""
     <audio autoplay>
         <source src="https://www.soundjay.com/buttons/sounds/button-09.mp3" type="audio/mpeg">
@@ -178,39 +154,70 @@ def play_sound():
     """, unsafe_allow_html=True)
 
 def verify_pdf_generation_ready(service_id: int, api_key: str) -> tuple:
-    """PDF 생성 가능 여부 검증"""
     errors = []
-    
-    # API 키 확인
     if not api_key:
         errors.append("❌ API 키가 설정되지 않았습니다.")
-    
-    # 서비스 확인
     if not service_id:
         errors.append("❌ 상품이 선택되지 않았습니다.")
         return False, errors
-    
-    # 목차 확인
     chapters = get_chapters_by_service(service_id)
     if not chapters:
         errors.append("❌ 목차가 등록되지 않았습니다.")
-    
-    # 지침 확인
     guidelines = get_guidelines_by_service(service_id)
     if not guidelines:
         errors.append("⚠️ 지침이 없습니다. (기본 지침 사용)")
-    
     if errors and any("❌" in e for e in errors):
         return False, errors
-    
     return True, errors
+
+def render_font_settings(prefix: str, defaults: dict = None):
+    """폰트 설정 UI 렌더링"""
+    if defaults is None:
+        defaults = {
+            "font_family": "NanumGothic",
+            "font_size_title": 24,
+            "font_size_subtitle": 16,
+            "font_size_body": 12,
+            "letter_spacing": 0,
+            "line_height": 180
+        }
+    
+    st.markdown("**🎨 폰트 설정**")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        font_idx = list(FONT_OPTIONS.keys()).index(defaults.get("font_family", "NanumGothic")) if defaults.get("font_family") in FONT_OPTIONS else 0
+        font_family = st.selectbox("폰트", list(FONT_OPTIONS.keys()), 
+                                   index=font_idx,
+                                   format_func=lambda x: FONT_OPTIONS[x],
+                                   key=f"{prefix}_font")
+    with col2:
+        line_height = st.slider("행간 (%)", 100, 300, defaults.get("line_height", 180), 10, key=f"{prefix}_lh")
+    
+    col3, col4, col5 = st.columns(3)
+    with col3:
+        font_size_title = st.number_input("대제목 크기", 16, 40, defaults.get("font_size_title", 24), key=f"{prefix}_title")
+    with col4:
+        font_size_subtitle = st.number_input("소제목 크기", 12, 30, defaults.get("font_size_subtitle", 16), key=f"{prefix}_sub")
+    with col5:
+        font_size_body = st.number_input("본문 크기", 8, 24, defaults.get("font_size_body", 12), key=f"{prefix}_body")
+    
+    letter_spacing = st.slider("자간 (%)", -20, 50, defaults.get("letter_spacing", 0), 5, key=f"{prefix}_ls")
+    
+    return {
+        "font_family": font_family,
+        "font_size_title": font_size_title,
+        "font_size_subtitle": font_size_subtitle,
+        "font_size_body": font_size_body,
+        "letter_spacing": letter_spacing,
+        "line_height": line_height
+    }
 
 # ============================================
 # PDF 생성 함수
 # ============================================
 
 def generate_content_with_gpt(api_key: str, chapter_title: str, guideline: str, customer_data: dict) -> str:
-    """GPT로 챕터 내용 생성"""
     try:
         from openai import OpenAI
         client = OpenAI(api_key=api_key)
@@ -240,165 +247,175 @@ def generate_content_with_gpt(api_key: str, chapter_title: str, guideline: str, 
             max_tokens=1000,
             temperature=0.7
         )
-        
         return response.choices[0].message.content.strip()
     except Exception as e:
         return f"[내용 생성 오류: {str(e)}]"
 
 
-def create_pdf_document(customer_name: str, chapters_content: list, templates: dict, font_size: int = 12) -> bytes:
-    """PDF 문서 생성"""
+def create_pdf_document(customer_name: str, chapters_content: list, templates: dict, font_settings: dict) -> bytes:
+    """PDF 문서 생성 - A4 규격 맞춤"""
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import ParagraphStyle
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Image
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Image, Frame, PageTemplate
         from reportlab.lib.units import mm
-        from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
+        from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
         from reportlab.lib.colors import black
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
-        from PIL import Image as PILImage
+        from reportlab.pdfgen import canvas
         
         buffer = BytesIO()
-        page_width, page_height = A4
+        page_width, page_height = A4  # 595.27 x 841.89 points
         
-        # 마진 설정
-        left_margin = 20*mm
-        right_margin = 20*mm
-        top_margin = 20*mm
-        bottom_margin = 20*mm
+        # 한글 폰트 등록
+        font_name = 'Helvetica'
+        try:
+            font_paths = {
+                'NanumGothic': '/usr/share/fonts/truetype/nanum/NanumGothic.ttf',
+                'NanumMyeongjo': '/usr/share/fonts/truetype/nanum/NanumMyeongjo.ttf',
+                'NanumBarunGothic': '/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf',
+            }
+            
+            selected_font = font_settings.get('font_family', 'NanumGothic')
+            font_path = font_paths.get(selected_font)
+            
+            if font_path and os.path.exists(font_path):
+                pdfmetrics.registerFont(TTFont('KoreanFont', font_path))
+                font_name = 'KoreanFont'
+            else:
+                # 기본 폰트 시도
+                for fp in font_paths.values():
+                    if os.path.exists(fp):
+                        pdfmetrics.registerFont(TTFont('KoreanFont', fp))
+                        font_name = 'KoreanFont'
+                        break
+        except Exception as e:
+            print(f"폰트 로드 실패: {e}")
         
-        doc = SimpleDocTemplate(
-            buffer, pagesize=A4,
-            leftMargin=left_margin, rightMargin=right_margin,
-            topMargin=top_margin, bottomMargin=bottom_margin
+        # 폰트 설정값
+        title_size = font_settings.get('font_size_title', 24)
+        subtitle_size = font_settings.get('font_size_subtitle', 16)
+        body_size = font_settings.get('font_size_body', 12)
+        line_height_pct = font_settings.get('line_height', 180)
+        letter_spacing = font_settings.get('letter_spacing', 0)
+        
+        # 본문 마진
+        margin = 25 * mm
+        
+        # 스타일 정의
+        title_style = ParagraphStyle(
+            'Title', fontSize=title_size, alignment=TA_CENTER,
+            spaceAfter=30, textColor=black, fontName=font_name,
+            leading=title_size * 1.5
+        )
+        subtitle_style = ParagraphStyle(
+            'Subtitle', fontSize=subtitle_size, alignment=TA_LEFT,
+            spaceBefore=20, spaceAfter=15, textColor=black, fontName=font_name,
+            leading=subtitle_size * 1.5
+        )
+        body_style = ParagraphStyle(
+            'Body', fontSize=body_size, alignment=TA_JUSTIFY,
+            spaceAfter=10, textColor=black, fontName=font_name,
+            leading=body_size * (line_height_pct / 100)
+        )
+        page_num_style = ParagraphStyle(
+            'PageNum', fontSize=10, alignment=TA_CENTER, textColor=black, fontName=font_name
         )
         
-        # 사용 가능한 영역 계산
-        available_width = page_width - left_margin - right_margin
-        available_height = page_height - top_margin - bottom_margin
+        # Canvas로 직접 그리기 (표지/안내지 전체 페이지)
+        c = canvas.Canvas(buffer, pagesize=A4)
         
-        # 한글 폰트 등록 시도
-        font_name = 'Helvetica'
-        font_registered = False
-        
-        try:
-            # 시스템 한글 폰트 경로들
-            font_paths = [
-                '/usr/share/fonts/truetype/nanum/NanumGothic.ttf',
-                '/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf',
-                '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-                '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-                'NanumGothic.ttf',  # 로컬 폴더
-            ]
-            for fp in font_paths:
-                if os.path.exists(fp):
-                    pdfmetrics.registerFont(TTFont('KoreanFont', fp))
-                    font_name = 'KoreanFont'
-                    font_registered = True
-                    break
-            
-            # 폰트가 없으면 다운로드 시도
-            if not font_registered:
-                import urllib.request
-                font_url = "https://github.com/googlefonts/nanum-gothic/raw/main/fonts/NanumGothic-Regular.ttf"
-                local_font = "NanumGothic.ttf"
-                if not os.path.exists(local_font):
-                    urllib.request.urlretrieve(font_url, local_font)
-                pdfmetrics.registerFont(TTFont('KoreanFont', local_font))
-                font_name = 'KoreanFont'
-        except Exception as font_err:
-            print(f"폰트 로드 실패: {font_err}")
-        
-        # 스타일
-        title_style = ParagraphStyle('Title', fontSize=24, alignment=TA_CENTER, 
-                                     spaceAfter=30, textColor=black, fontName=font_name)
-        chapter_style = ParagraphStyle('Chapter', fontSize=16, spaceBefore=20, 
-                                       spaceAfter=15, textColor=black, fontName=font_name)
-        body_style = ParagraphStyle('Body', fontSize=font_size, leading=font_size*1.8,
-                                    alignment=TA_JUSTIFY, spaceAfter=12, textColor=black, fontName=font_name)
-        page_style = ParagraphStyle('Page', fontSize=10, alignment=TA_CENTER, textColor=black, fontName=font_name)
-        
-        story = []
-        
-        def get_image_with_aspect_ratio(img_path, max_width, max_height):
-            """이미지 비율 유지하면서 크기 조정"""
-            try:
-                with PILImage.open(img_path) as pil_img:
-                    orig_width, orig_height = pil_img.size
-                
-                # 비율 계산
-                width_ratio = max_width / orig_width
-                height_ratio = max_height / orig_height
-                ratio = min(width_ratio, height_ratio)
-                
-                new_width = orig_width * ratio
-                new_height = orig_height * ratio
-                
-                img = Image(img_path, width=new_width, height=new_height)
-                img.hAlign = 'CENTER'
-                return img
-            except:
-                return None
-        
-        # ===== 표지 =====
+        # ===== 1. 표지 (전체 페이지) =====
         cover_path = templates.get('cover')
         if cover_path and os.path.exists(cover_path):
-            img = get_image_with_aspect_ratio(cover_path, available_width, available_height)
-            if img:
-                story.append(img)
-            else:
-                story.append(Spacer(1, 80*mm))
-                story.append(Paragraph(f"{customer_name}님의 운세", title_style))
+            try:
+                # A4 전체 크기로 이미지 배치
+                c.drawImage(cover_path, 0, 0, width=page_width, height=page_height)
+            except Exception as img_err:
+                c.setFont(font_name if font_name != 'Helvetica' else 'Helvetica', title_size)
+                c.drawCentredString(page_width/2, page_height/2, f"{customer_name}님의 운세")
         else:
-            story.append(Spacer(1, 80*mm))
-            story.append(Paragraph(f"{customer_name}님의 운세", title_style))
-            story.append(Spacer(1, 20*mm))
-            story.append(Paragraph(datetime.now().strftime("%Y년 %m월 %d일"), 
-                                  ParagraphStyle('Date', fontSize=14, alignment=TA_CENTER, fontName=font_name)))
+            c.setFont(font_name if font_name != 'Helvetica' else 'Helvetica', title_size)
+            c.drawCentredString(page_width/2, page_height/2, f"{customer_name}님의 운세")
         
-        story.append(PageBreak())
+        c.showPage()
         
-        # ===== 본문 =====
+        # ===== 2. 본문 페이지들 =====
         for idx, chapter in enumerate(chapters_content):
-            safe_title = chapter['title'].replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-            story.append(Paragraph(f"● {safe_title}", chapter_style))
+            # 본문 영역
+            y_position = page_height - margin
             
+            # 소제목 (챕터 제목)
+            c.setFont(font_name if font_name != 'Helvetica' else 'Helvetica-Bold', subtitle_size)
+            chapter_title = f"● {chapter['title']}"
+            c.drawString(margin, y_position, chapter_title)
+            y_position -= subtitle_size * 2
+            
+            # 본문 내용
+            c.setFont(font_name if font_name != 'Helvetica' else 'Helvetica', body_size)
             content = chapter['content']
+            
+            # 텍스트 줄바꿈 처리
+            max_width = page_width - (2 * margin)
+            lines = []
             for para in content.split('\n'):
                 if para.strip():
-                    safe_para = para.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                    story.append(Paragraph(safe_para, body_style))
+                    # 간단한 줄바꿈 처리
+                    words = para.strip()
+                    current_line = ""
+                    for char in words:
+                        test_line = current_line + char
+                        if c.stringWidth(test_line, font_name if font_name != 'Helvetica' else 'Helvetica', body_size) < max_width:
+                            current_line = test_line
+                        else:
+                            if current_line:
+                                lines.append(current_line)
+                            current_line = char
+                    if current_line:
+                        lines.append(current_line)
+                    lines.append("")  # 단락 구분
             
-            story.append(Spacer(1, 10*mm))
-            story.append(Paragraph(f"- {idx + 2} -", page_style))
+            line_spacing = body_size * (line_height_pct / 100)
+            for line in lines:
+                if y_position < margin + 50:
+                    # 페이지 번호
+                    c.setFont(font_name if font_name != 'Helvetica' else 'Helvetica', 10)
+                    c.drawCentredString(page_width/2, 20*mm, f"- {idx + 2} -")
+                    c.showPage()
+                    y_position = page_height - margin
+                    c.setFont(font_name if font_name != 'Helvetica' else 'Helvetica', body_size)
+                
+                c.drawString(margin, y_position, line)
+                y_position -= line_spacing
             
-            if idx < len(chapters_content) - 1:
-                story.append(PageBreak())
+            # 페이지 번호
+            c.setFont(font_name if font_name != 'Helvetica' else 'Helvetica', 10)
+            c.drawCentredString(page_width/2, 20*mm, f"- {idx + 2} -")
+            c.showPage()
         
-        # ===== 안내지 =====
-        story.append(PageBreak())
+        # ===== 3. 안내지 (전체 페이지) =====
         info_path = templates.get('info')
         if info_path and os.path.exists(info_path):
-            img = get_image_with_aspect_ratio(info_path, available_width, available_height)
-            if img:
-                story.append(img)
-            else:
-                story.append(Spacer(1, 80*mm))
-                story.append(Paragraph("감사합니다", title_style))
+            try:
+                c.drawImage(info_path, 0, 0, width=page_width, height=page_height)
+            except:
+                c.setFont(font_name if font_name != 'Helvetica' else 'Helvetica', title_size)
+                c.drawCentredString(page_width/2, page_height/2, "감사합니다")
         else:
-            story.append(Spacer(1, 80*mm))
-            story.append(Paragraph("감사합니다", title_style))
+            c.setFont(font_name if font_name != 'Helvetica' else 'Helvetica', title_size)
+            c.drawCentredString(page_width/2, page_height/2, "감사합니다")
         
-        doc.build(story)
+        c.save()
         return buffer.getvalue()
     except Exception as e:
         st.error(f"PDF 생성 오류: {str(e)}")
         return None
 
 
-def generate_pdf_for_customer(customer_data: dict, service_id: int, font_size: int, api_key: str) -> bytes:
+def generate_pdf_for_customer(customer_data: dict, service: dict, api_key: str) -> bytes:
     """고객용 PDF 생성"""
+    service_id = service['id']
     chapters = get_chapters_by_service(service_id)
     guidelines = get_guidelines_by_service(service_id)
     guideline_text = guidelines[0]['content'] if guidelines else "친절하고 긍정적인 톤으로 작성하세요."
@@ -416,12 +433,21 @@ def generate_pdf_for_customer(customer_data: dict, service_id: int, font_size: i
             break
     customer_name = customer_data.get(name_col, "고객") if name_col else "고객"
     
+    font_settings = {
+        'font_family': service.get('font_family', 'NanumGothic'),
+        'font_size_title': service.get('font_size_title', 24),
+        'font_size_subtitle': service.get('font_size_subtitle', 16),
+        'font_size_body': service.get('font_size_body', 12),
+        'letter_spacing': service.get('letter_spacing', 0),
+        'line_height': service.get('line_height', 180),
+    }
+    
     chapters_content = []
     for ch in chapters:
         content = generate_content_with_gpt(api_key, ch['title'], guideline_text, customer_data)
         chapters_content.append({"title": ch['title'], "content": content})
     
-    return create_pdf_document(customer_name, chapters_content, templates, font_size)
+    return create_pdf_document(customer_name, chapters_content, templates, font_settings)
 
 # ============================================
 # 로그인 페이지
@@ -480,7 +506,7 @@ def show_login_page():
                     if all([a_name, a_email, a_pw]):
                         result = create_first_admin(a_email, a_pw, a_name)
                         if result["success"]:
-                            st.success("✅ 관리자 계정 생성됨! 로그인하세요.")
+                            st.success("✅ 관리자 계정 생성됨!")
                             st.rerun()
 
 # ============================================
@@ -497,12 +523,8 @@ def show_main_app():
             st.markdown('<span class="badge-admin">관리자</span>', unsafe_allow_html=True)
         else:
             level = user.get('member_level', 1)
-            if level == 1:
-                st.markdown('<span class="badge-level1">1단계</span>', unsafe_allow_html=True)
-            elif level == 2:
-                st.markdown('<span class="badge-level2">2단계</span>', unsafe_allow_html=True)
-            else:
-                st.markdown('<span class="badge-level3">3단계</span>', unsafe_allow_html=True)
+            badges = {1: "badge-level1", 2: "badge-level2", 3: "badge-level3"}
+            st.markdown(f'<span class="{badges[level]}">{level}단계</span>', unsafe_allow_html=True)
         
         st.markdown("---")
         
@@ -559,21 +581,13 @@ def show_admin_settings():
     # ===== 회원관리 =====
     with tab2:
         st.markdown('<span class="section-title">👥 회원 관리</span>', unsafe_allow_html=True)
-        
-        st.markdown("""
-        **회원 등급 설명:**
-        - **1단계**: 기성상품만 사용
-        - **2단계**: 개별상품만 사용  
-        - **3단계**: 둘 다 사용
-        """)
-        
+        st.markdown("**1단계**: 기성상품만 | **2단계**: 개별상품만 | **3단계**: 둘 다")
         st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
         
         subtab1, subtab2 = st.tabs(["전체 회원", "승인 대기"])
         
         with subtab1:
             users = get_all_users()
-            
             for u in users:
                 if u['id'] == st.session_state.user['id']:
                     continue
@@ -587,38 +601,22 @@ def show_admin_settings():
                     st.caption(u['email'])
                 
                 with col2:
-                    new_level = st.selectbox(
-                        "등급",
-                        [1, 2, 3],
-                        index=u.get('member_level', 1) - 1,
-                        format_func=lambda x: f"{x}단계",
-                        key=f"lvl_{u['id']}"
-                    )
-                
+                    new_level = st.selectbox("등급", [1, 2, 3], index=u.get('member_level', 1) - 1,
+                                            format_func=lambda x: f"{x}단계", key=f"lvl_{u['id']}")
                 with col3:
-                    new_api = st.selectbox(
-                        "API",
-                        ["unified", "separated"],
-                        index=0 if u.get('api_mode') == 'unified' else 1,
-                        format_func=lambda x: "통합" if x == "unified" else "분리",
-                        key=f"api_{u['id']}"
-                    )
-                
+                    new_api = st.selectbox("API", ["unified", "separated"],
+                                          index=0 if u.get('api_mode') == 'unified' else 1,
+                                          format_func=lambda x: "통합" if x == "unified" else "분리",
+                                          key=f"api_{u['id']}")
                 with col4:
-                    new_email = st.selectbox(
-                        "이메일",
-                        ["unified", "separated"],
-                        index=0 if u.get('email_mode') == 'unified' else 1,
-                        format_func=lambda x: "통합" if x == "unified" else "분리",
-                        key=f"email_{u['id']}"
-                    )
-                
+                    new_email = st.selectbox("이메일", ["unified", "separated"],
+                                            index=0 if u.get('email_mode') == 'unified' else 1,
+                                            format_func=lambda x: "통합" if x == "unified" else "분리",
+                                            key=f"email_{u['id']}")
                 with col5:
                     if st.button("💾", key=f"save_{u['id']}"):
                         update_user_settings(u['id'], new_level, new_api, new_email)
-                        st.success("저장")
                         st.rerun()
-                    
                     if u['status'] == 'approved':
                         if st.button("🚫", key=f"sus_{u['id']}"):
                             suspend_user(u['id'])
@@ -627,7 +625,6 @@ def show_admin_settings():
                         if st.button("✅", key=f"act_{u['id']}"):
                             activate_user(u['id'])
                             st.rerun()
-                
                 st.markdown("---")
         
         with subtab2:
@@ -645,46 +642,41 @@ def show_admin_settings():
     with tab3:
         st.markdown('<span class="section-title">📦 기성상품 등록</span>', unsafe_allow_html=True)
         
+        # 새 상품 등록
         with st.expander("➕ 새 기성상품 등록", expanded=False):
             product_name = st.text_input("상품명", key="new_prod")
             
             st.markdown("**📑 목차** (줄바꿈으로 구분)")
-            new_chapters = st.text_area("목차 입력", height=250, key="new_ch",
-                placeholder="1. 올해의 총운\n2. 재물운\n3. 건강운\n4. 연애운\n5. 직장운")
+            new_chapters = st.text_area("목차 입력", height=200, key="new_ch",
+                placeholder="1. 올해의 총운\n2. 재물운\n3. 건강운")
             
             st.markdown("**📜 AI 작성 지침**")
-            new_guideline = st.text_area("지침 입력", height=250, key="new_g",
-                placeholder="- 긍정적이고 희망적인 톤으로 작성\n- 각 목차당 300-500자 분량\n- 구체적인 조언 포함\n- 고객 정보를 자연스럽게 반영")
+            new_guideline = st.text_area("지침 입력", height=200, key="new_g",
+                placeholder="- 긍정적인 톤\n- 300자 이상")
             
-            st.markdown("**🎨 디자인**")
+            # 폰트 설정
+            font_settings = render_font_settings("new_admin")
+            
+            st.markdown("**🖼️ 디자인**")
             d_cols = st.columns(3)
             with d_cols[0]:
                 cover = st.file_uploader("📕 표지", type=["jpg","jpeg","png"], key="new_cover")
-                if cover:
-                    st.image(cover, width=100)
             with d_cols[1]:
                 bg = st.file_uploader("📄 내지", type=["jpg","jpeg","png"], key="new_bg")
-                if bg:
-                    st.image(bg, width=100)
             with d_cols[2]:
                 info = st.file_uploader("📋 안내지", type=["jpg","jpeg","png"], key="new_info")
-                if info:
-                    st.image(info, width=100)
             
             if st.button("💾 기성상품 등록", type="primary", use_container_width=True):
                 if product_name:
-                    result = add_service(product_name, "", None)
+                    result = add_service(product_name, "", None, **font_settings)
                     if result.get("success"):
                         svc_id = result["id"]
-                        
                         if new_chapters:
                             for idx, ch in enumerate(new_chapters.strip().split("\n")):
                                 if ch.strip():
                                     add_chapter(svc_id, ch.strip(), "", idx+1)
-                        
                         if new_guideline:
                             add_guideline(svc_id, f"{product_name} 지침", new_guideline)
-                        
                         if cover:
                             path = save_uploaded_file(cover, f"{product_name}_cover")
                             add_template(svc_id, "cover", "표지", path)
@@ -694,11 +686,8 @@ def show_admin_settings():
                         if info:
                             path = save_uploaded_file(info, f"{product_name}_info")
                             add_template(svc_id, "info", "안내지", path)
-                        
                         st.success(f"'{product_name}' 등록됨!")
                         st.rerun()
-                else:
-                    st.error("상품명을 입력하세요.")
         
         st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
         st.markdown("**등록된 기성상품**")
@@ -709,30 +698,95 @@ def show_admin_settings():
         else:
             for svc in services:
                 with st.expander(f"📌 {svc['name']}"):
-                    chapters = get_chapters_by_service(svc['id'])
-                    guidelines = get_guidelines_by_service(svc['id'])
-                    templates = get_templates_by_service(svc['id'])
-                    
-                    st.markdown(f"**목차**: {len(chapters)}개")
-                    if chapters:
-                        for ch in chapters:
-                            st.caption(f"  • {ch['title']}")
-                    
-                    st.markdown(f"**지침**: {'있음' if guidelines else '없음'}")
-                    
-                    st.markdown("**디자인**")
-                    t_cols = st.columns(3)
-                    for idx, tt in enumerate(["cover", "background", "info"]):
-                        with t_cols[idx]:
-                            t_list = [t for t in templates if t['template_type'] == tt]
-                            if t_list and t_list[0].get('image_path') and os.path.exists(t_list[0]['image_path']):
-                                st.image(t_list[0]['image_path'], width=80)
-                            else:
-                                st.caption(f"{TEMPLATE_TYPES[tt]}: 없음")
-                    
-                    if st.button("🗑️ 삭제", key=f"del_{svc['id']}"):
-                        delete_service(svc['id'])
-                        st.rerun()
+                    show_service_edit_form(svc, "admin")
+
+# ============================================
+# 상품 수정 폼
+# ============================================
+
+def show_service_edit_form(svc: dict, prefix: str):
+    """상품 수정 폼"""
+    svc_id = svc['id']
+    
+    chapters = get_chapters_by_service(svc_id)
+    guidelines = get_guidelines_by_service(svc_id)
+    templates = get_templates_by_service(svc_id)
+    
+    # 기본 정보
+    edit_name = st.text_input("상품명", value=svc['name'], key=f"{prefix}_name_{svc_id}")
+    
+    # 목차
+    st.markdown("**📑 목차**")
+    current_chapters = "\n".join([ch['title'] for ch in chapters])
+    edit_chapters = st.text_area("목차", value=current_chapters, height=150, key=f"{prefix}_ch_{svc_id}")
+    
+    # 지침
+    st.markdown("**📜 지침**")
+    current_guideline = guidelines[0]['content'] if guidelines else ""
+    edit_guideline = st.text_area("지침", value=current_guideline, height=150, key=f"{prefix}_g_{svc_id}")
+    
+    # 폰트 설정
+    font_defaults = {
+        "font_family": svc.get('font_family', 'NanumGothic'),
+        "font_size_title": svc.get('font_size_title', 24),
+        "font_size_subtitle": svc.get('font_size_subtitle', 16),
+        "font_size_body": svc.get('font_size_body', 12),
+        "letter_spacing": svc.get('letter_spacing', 0),
+        "line_height": svc.get('line_height', 180),
+    }
+    font_settings = render_font_settings(f"{prefix}_{svc_id}", font_defaults)
+    
+    # 디자인
+    st.markdown("**🖼️ 디자인**")
+    t_cols = st.columns(3)
+    for idx, tt in enumerate(["cover", "background", "info"]):
+        with t_cols[idx]:
+            t_list = [t for t in templates if t['template_type'] == tt]
+            if t_list and t_list[0].get('image_path') and os.path.exists(t_list[0]['image_path']):
+                st.image(t_list[0]['image_path'], width=80)
+            new_file = st.file_uploader(TEMPLATE_TYPES[tt], type=["jpg","jpeg","png"], 
+                                       key=f"{prefix}_{tt}_{svc_id}")
+            if new_file:
+                st.session_state[f"new_{tt}_{svc_id}"] = new_file
+    
+    # 버튼
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("💾 저장", key=f"{prefix}_save_{svc_id}", type="primary", use_container_width=True):
+            # 이름/폰트 업데이트
+            update_service(svc_id, name=edit_name, **font_settings)
+            
+            # 목차 업데이트 (기존 삭제 후 새로 추가)
+            for ch in chapters:
+                delete_chapter(ch['id'])
+            for idx, ch in enumerate(edit_chapters.strip().split("\n")):
+                if ch.strip():
+                    add_chapter(svc_id, ch.strip(), "", idx+1)
+            
+            # 지침 업데이트
+            if guidelines:
+                update_guideline(guidelines[0]['id'], guidelines[0]['title'], edit_guideline)
+            elif edit_guideline:
+                add_guideline(svc_id, f"{edit_name} 지침", edit_guideline)
+            
+            # 디자인 업데이트
+            for tt in ["cover", "background", "info"]:
+                new_file = st.session_state.get(f"new_{tt}_{svc_id}")
+                if new_file:
+                    path = save_uploaded_file(new_file, f"{edit_name}_{tt}")
+                    # 기존 삭제 후 추가
+                    for t in templates:
+                        if t['template_type'] == tt:
+                            delete_template(t['id'])
+                    add_template(svc_id, tt, TEMPLATE_TYPES[tt], path)
+            
+            st.success("저장됨!")
+            st.rerun()
+    
+    with col2:
+        if st.button("🗑️ 삭제", key=f"{prefix}_del_{svc_id}", use_container_width=True):
+            delete_service(svc_id)
+            st.rerun()
 
 # ============================================
 # 📦 서비스 작업
@@ -743,16 +797,13 @@ def show_service_work():
     
     user = st.session_state.user
     level = user.get('member_level', 1) if not user['is_admin'] else 3
-    
-    # API 확인
     api_key = get_api_key()
     
     selected_service = None
     
-    # ===== 상품 타입 선택 =====
+    # ===== 1. 상품 유형 선택 =====
     st.markdown('<span class="section-title">1️⃣ 상품 유형 선택</span>', unsafe_allow_html=True)
     
-    # 등급에 따른 옵션 표시
     if level == 1:
         options = ["📦 기성상품"]
     elif level == 2:
@@ -761,10 +812,9 @@ def show_service_work():
         options = ["📦 기성상품", "🔧 개별상품"]
     
     product_type = st.radio("상품 유형", options, horizontal=True, key="prod_type")
-    
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
     
-    # ===== 기성상품 선택 =====
+    # ===== 2. 기성상품 선택 =====
     if "기성상품" in product_type:
         st.markdown('<span class="section-title">2️⃣ 기성상품 선택</span>', unsafe_allow_html=True)
         
@@ -776,22 +826,11 @@ def show_service_work():
             
             if selected_service:
                 chapters = get_chapters_by_service(selected_service['id'])
-                templates = get_templates_by_service(selected_service['id'])
-                
-                col1, col2 = st.columns([2, 1])
-                with col1:
-                    st.success(f"✅ '{selected_name}' 선택됨 (목차 {len(chapters)}개)")
-                with col2:
-                    t_cols = st.columns(3)
-                    for idx, tt in enumerate(["cover", "background", "info"]):
-                        with t_cols[idx]:
-                            t_list = [t for t in templates if t['template_type'] == tt]
-                            if t_list and t_list[0].get('image_path') and os.path.exists(t_list[0]['image_path']):
-                                st.image(t_list[0]['image_path'], width=50)
+                st.success(f"✅ '{selected_name}' 선택됨 (목차 {len(chapters)}개)")
         else:
             st.warning("등록된 기성상품이 없습니다.")
     
-    # ===== 개별상품 =====
+    # ===== 2. 개별상품 =====
     elif "개별상품" in product_type:
         st.markdown('<span class="section-title">2️⃣ 개별상품</span>', unsafe_allow_html=True)
         
@@ -806,49 +845,46 @@ def show_service_work():
                 if selected_service:
                     chapters = get_chapters_by_service(selected_service['id'])
                     st.success(f"✅ '{selected_my}' 선택됨 (목차 {len(chapters)}개)")
+                    
+                    # 수정 폼
+                    with st.expander("✏️ 상품 수정", expanded=False):
+                        show_service_edit_form(selected_service, "my")
         else:
             selected_my = "➕ 새로 만들기"
         
+        # 새로 만들기
         if not my_services or selected_my == "➕ 새로 만들기":
             with st.expander("➕ 개별상품 만들기", expanded=True):
                 my_name = st.text_input("상품명", key="my_prod")
                 
-                st.markdown("**📑 목차** (줄바꿈으로 구분)")
-                my_chapters = st.text_area("목차 입력", height=200, key="my_ch",
-                    placeholder="1. 올해의 총운\n2. 재물운\n3. 건강운")
+                st.markdown("**📑 목차**")
+                my_chapters = st.text_area("목차", height=150, key="my_ch")
                 
-                st.markdown("**📜 AI 작성 지침**")
-                my_guide = st.text_area("지침 입력", height=200, key="my_g",
-                    placeholder="- 긍정적인 톤\n- 300자 이상\n- 구체적 조언 포함")
+                st.markdown("**📜 지침**")
+                my_guide = st.text_area("지침", height=150, key="my_g")
                 
-                st.markdown("**🎨 디자인**")
+                # 폰트 설정
+                font_settings = render_font_settings("new_my")
+                
+                st.markdown("**🖼️ 디자인**")
                 d_cols = st.columns(3)
                 with d_cols[0]:
-                    my_cover = st.file_uploader("📕 표지", type=["jpg","jpeg","png"], key="my_cover")
-                    if my_cover:
-                        st.image(my_cover, width=80)
+                    my_cover = st.file_uploader("표지", type=["jpg","jpeg","png"], key="my_cover")
                 with d_cols[1]:
-                    my_bg = st.file_uploader("📄 내지", type=["jpg","jpeg","png"], key="my_bg")
-                    if my_bg:
-                        st.image(my_bg, width=80)
+                    my_bg = st.file_uploader("내지", type=["jpg","jpeg","png"], key="my_bg")
                 with d_cols[2]:
-                    my_info = st.file_uploader("📋 안내지", type=["jpg","jpeg","png"], key="my_info")
-                    if my_info:
-                        st.image(my_info, width=80)
+                    my_info = st.file_uploader("안내지", type=["jpg","jpeg","png"], key="my_info")
                 
-                if st.button("💾 개별상품 저장", type="primary", use_container_width=True):
+                if st.button("💾 저장", type="primary", use_container_width=True):
                     if my_name and my_chapters:
-                        result = add_service(my_name, "", user['id'])
+                        result = add_service(my_name, "", user['id'], **font_settings)
                         if result.get("success"):
                             svc_id = result["id"]
-                            
                             for idx, ch in enumerate(my_chapters.strip().split("\n")):
                                 if ch.strip():
                                     add_chapter(svc_id, ch.strip(), "", idx+1)
-                            
                             if my_guide:
                                 add_guideline(svc_id, f"{my_name} 지침", my_guide)
-                            
                             if my_cover:
                                 path = save_uploaded_file(my_cover, f"{my_name}_cover")
                                 add_template(svc_id, "cover", "표지", path)
@@ -858,35 +894,26 @@ def show_service_work():
                             if my_info:
                                 path = save_uploaded_file(my_info, f"{my_name}_info")
                                 add_template(svc_id, "info", "안내지", path)
-                            
                             st.success("저장됨!")
                             st.rerun()
-                    else:
-                        st.error("상품명과 목차를 입력하세요.")
     
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
     
-    # ===== PDF 생성 영역 =====
+    # ===== 3. PDF 생성 =====
     st.markdown('<span class="section-title">3️⃣ PDF 생성</span>', unsafe_allow_html=True)
     
-    # 오류 검증
     if selected_service:
         is_ready, errors = verify_pdf_generation_ready(selected_service['id'], api_key)
-        
         for err in errors:
             if "❌" in err:
                 st.error(err)
             else:
                 st.warning(err)
-        
         if not is_ready:
             st.stop()
     else:
         st.warning("⚠️ 상품을 먼저 선택하세요.")
         st.stop()
-    
-    # 폰트 크기
-    font_size = st.slider("글자 크기", 10, 18, 12, key="font")
     
     # 고객 파일
     uploaded = st.file_uploader("📂 고객 엑셀 파일 (.xlsx)", type=["xlsx", "xls"], key="cust")
@@ -899,7 +926,6 @@ def show_service_work():
     if st.session_state.customers_df is not None:
         df = st.session_state.customers_df
         
-        # 이름 컬럼 찾기
         name_col = None
         for col in ['이름', 'name', 'Name', '성명', '고객명']:
             if col in df.columns:
@@ -910,22 +936,21 @@ def show_service_work():
         
         st.markdown("---")
         
-        # 선택 상태 초기화
+        # 선택 상태
         if 'selected_customers' not in st.session_state:
             st.session_state.selected_customers = set(range(len(df)))
         
-        # 전체 선택/해제
         col_all1, col_all2 = st.columns([1, 4])
         with col_all1:
-            select_all = st.checkbox("전체 선택", value=len(st.session_state.selected_customers) == len(df), key="select_all")
-            if select_all:
+            if st.checkbox("전체 선택", value=len(st.session_state.selected_customers) == len(df)):
                 st.session_state.selected_customers = set(range(len(df)))
-            elif len(st.session_state.selected_customers) == len(df):
-                st.session_state.selected_customers = set()
+            else:
+                if len(st.session_state.selected_customers) == len(df):
+                    st.session_state.selected_customers = set()
         
         st.markdown("---")
         
-        # 고객 목록 헤더
+        # 헤더
         header_cols = st.columns([0.5, 2.5, 3, 1, 1])
         header_cols[0].markdown("**선택**")
         header_cols[1].markdown("**이름**")
@@ -937,12 +962,11 @@ def show_service_work():
         for idx, row in df.iterrows():
             cust_name = row[name_col]
             is_done = idx in st.session_state.completed_customers
-            progress_val = st.session_state.get(f'progress_{idx}', 0)
             
             col0, col1, col2, col3, col4 = st.columns([0.5, 2.5, 3, 1, 1])
             
             with col0:
-                checked = st.checkbox("", value=idx in st.session_state.selected_customers, 
+                checked = st.checkbox("", value=idx in st.session_state.selected_customers,
                                      key=f"chk_{idx}", label_visibility="collapsed")
                 if checked:
                     st.session_state.selected_customers.add(idx)
@@ -953,10 +977,7 @@ def show_service_work():
                 st.write(f"**{cust_name}**")
             
             with col2:
-                if is_done:
-                    st.progress(1.0, text="100%")
-                else:
-                    st.progress(progress_val, text=f"{int(progress_val * 100)}%")
+                st.progress(1.0 if is_done else 0.0, text="100%" if is_done else "0%")
             
             with col3:
                 if is_done:
@@ -966,21 +987,15 @@ def show_service_work():
                 if is_done:
                     pdf_data = st.session_state.generated_pdfs.get(idx)
                     if pdf_data:
-                        st.download_button("⬇️", pdf_data, f"{cust_name}_운세.pdf", 
+                        st.download_button("⬇️", pdf_data, f"{cust_name}_운세.pdf",
                                           "application/pdf", key=f"dl_{idx}")
         
         st.markdown("---")
         
-        # 변환 버튼
-        selected_count = len(st.session_state.selected_customers)
-        done_count = len(st.session_state.completed_customers)
-        total_count = len(df)
-        
-        # 선택된 것 중 미완료 항목
-        pending_selected = [i for i in st.session_state.selected_customers 
+        pending_selected = [i for i in st.session_state.selected_customers
                           if i not in st.session_state.completed_customers]
         
-        st.info(f"📊 선택: {selected_count}명 | 완료: {done_count}/{total_count}")
+        st.info(f"📊 선택: {len(st.session_state.selected_customers)}명 | 완료: {len(st.session_state.completed_customers)}/{len(df)}")
         
         if st.button(f"🚀 선택한 {len(pending_selected)}명 PDF 생성", type="primary", use_container_width=True):
             if not pending_selected:
@@ -991,15 +1006,9 @@ def show_service_work():
                 for i, idx in enumerate(pending_selected):
                     row = df.iloc[idx]
                     cust_name = row[name_col]
-                    
                     status.text(f"📝 {cust_name} 생성 중... ({i+1}/{len(pending_selected)})")
                     
-                    pdf_bytes = generate_pdf_for_customer(
-                        row.to_dict(),
-                        selected_service['id'],
-                        font_size,
-                        api_key
-                    )
+                    pdf_bytes = generate_pdf_for_customer(row.to_dict(), selected_service, api_key)
                     
                     if pdf_bytes:
                         st.session_state.completed_customers[idx] = True
@@ -1012,7 +1021,7 @@ def show_service_work():
                 st.rerun()
 
 # ============================================
-# 👤 MyPage
+# 👤 MyPage / 📢 공지사항
 # ============================================
 
 def show_mypage():
@@ -1066,10 +1075,6 @@ def show_mypage():
         else:
             st.info("🔒 이메일: 관리자 통합 모드")
 
-# ============================================
-# 📢 공지사항
-# ============================================
-
 def show_notices():
     st.title("📢 공지사항")
     
@@ -1100,15 +1105,15 @@ def show_notices():
                     
                     c1, c2, c3 = st.columns(3)
                     with c1:
-                        if st.button("💾 수정", key=f"sv_{n['id']}"):
+                        if st.button("💾", key=f"sv_{n['id']}"):
                             update_notice(n['id'], ed_title, ed_content)
                             st.rerun()
                     with c2:
-                        if st.button("📌 고정", key=f"pn_{n['id']}"):
+                        if st.button("📌", key=f"pn_{n['id']}"):
                             toggle_pin_notice(n['id'])
                             st.rerun()
                     with c3:
-                        if st.button("🗑️ 삭제", key=f"dl_{n['id']}"):
+                        if st.button("🗑️", key=f"dl_{n['id']}"):
                             delete_notice(n['id'])
                             st.rerun()
                 else:
