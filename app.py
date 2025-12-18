@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 🔮 사주/연애/타로 PDF 자동 생성 플랫폼
-회원 등급 1/2/3단계 버전
+UI 개선 버전
 """
 
 import streamlit as st
@@ -86,8 +86,12 @@ st.markdown("""
     .badge-level3 { background: #28a745; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; }
     
     /* 완료 배지 */
-    .badge-done { background: #28a745; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; }
-    .badge-pending { background: #ffc107; color: black; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; }
+    .badge-done { background: #28a745; color: white; padding: 3px 10px; border-radius: 10px; font-size: 0.8rem; }
+    
+    /* 큰 텍스트 영역 */
+    .stTextArea textarea {
+        min-height: 200px !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -101,6 +105,8 @@ defaults = {
     'customers_df': None,
     'completed_customers': {},
     'generated_pdfs': {},
+    'selected_product_type': 'ready',
+    'selected_service_id': None,
 }
 
 for key, val in defaults.items():
@@ -169,6 +175,34 @@ def play_sound():
         <source src="https://www.soundjay.com/buttons/sounds/button-09.mp3" type="audio/mpeg">
     </audio>
     """, unsafe_allow_html=True)
+
+def verify_pdf_generation_ready(service_id: int, api_key: str) -> tuple:
+    """PDF 생성 가능 여부 검증"""
+    errors = []
+    
+    # API 키 확인
+    if not api_key:
+        errors.append("❌ API 키가 설정되지 않았습니다.")
+    
+    # 서비스 확인
+    if not service_id:
+        errors.append("❌ 상품이 선택되지 않았습니다.")
+        return False, errors
+    
+    # 목차 확인
+    chapters = get_chapters_by_service(service_id)
+    if not chapters:
+        errors.append("❌ 목차가 등록되지 않았습니다.")
+    
+    # 지침 확인
+    guidelines = get_guidelines_by_service(service_id)
+    if not guidelines:
+        errors.append("⚠️ 지침이 없습니다. (기본 지침 사용)")
+    
+    if errors and any("❌" in e for e in errors):
+        return False, errors
+    
+    return True, errors
 
 # ============================================
 # PDF 생성 함수
@@ -439,7 +473,7 @@ def show_main_app():
 def show_admin_settings():
     st.title("⚙️ 관리자 설정")
     
-    tab1, tab2, tab3 = st.tabs(["🔑 API/이메일", "👥 회원관리", "📦 상품등록"])
+    tab1, tab2, tab3 = st.tabs(["🔑 API/이메일", "👥 회원관리", "📦 기성상품 등록"])
     
     # ===== API/이메일 =====
     with tab1:
@@ -466,8 +500,8 @@ def show_admin_settings():
         
         st.markdown("""
         **회원 등급 설명:**
-        - **1단계**: 관리자가 만든 상품만 사용
-        - **2단계**: 회원이 개별 상품 만들어서 사용  
+        - **1단계**: 기성상품만 사용
+        - **2단계**: 개별상품만 사용  
         - **3단계**: 둘 다 사용
         """)
         
@@ -545,33 +579,39 @@ def show_admin_settings():
                     approve_user(u['id'])
                     st.rerun()
     
-    # ===== 상품등록 =====
+    # ===== 기성상품 등록 =====
     with tab3:
-        st.markdown('<span class="section-title">📦 상품 등록 (관리자 공용)</span>', unsafe_allow_html=True)
+        st.markdown('<span class="section-title">📦 기성상품 등록</span>', unsafe_allow_html=True)
         
-        with st.expander("➕ 새 상품 등록", expanded=False):
+        with st.expander("➕ 새 기성상품 등록", expanded=False):
             product_name = st.text_input("상품명", key="new_prod")
             
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("**📑 목차** (줄바꿈으로 구분)")
-                new_chapters = st.text_area("목차", height=150, key="new_ch")
-            with col2:
-                st.markdown("**📜 AI 지침**")
-                new_guideline = st.text_area("지침", height=150, key="new_g")
+            st.markdown("**📑 목차** (줄바꿈으로 구분)")
+            new_chapters = st.text_area("목차 입력", height=250, key="new_ch",
+                placeholder="1. 올해의 총운\n2. 재물운\n3. 건강운\n4. 연애운\n5. 직장운")
+            
+            st.markdown("**📜 AI 작성 지침**")
+            new_guideline = st.text_area("지침 입력", height=250, key="new_g",
+                placeholder="- 긍정적이고 희망적인 톤으로 작성\n- 각 목차당 300-500자 분량\n- 구체적인 조언 포함\n- 고객 정보를 자연스럽게 반영")
             
             st.markdown("**🎨 디자인**")
             d_cols = st.columns(3)
             with d_cols[0]:
-                cover = st.file_uploader("표지", type=["jpg","jpeg","png"], key="new_cover")
+                cover = st.file_uploader("📕 표지", type=["jpg","jpeg","png"], key="new_cover")
+                if cover:
+                    st.image(cover, width=100)
             with d_cols[1]:
-                bg = st.file_uploader("내지", type=["jpg","jpeg","png"], key="new_bg")
+                bg = st.file_uploader("📄 내지", type=["jpg","jpeg","png"], key="new_bg")
+                if bg:
+                    st.image(bg, width=100)
             with d_cols[2]:
-                info = st.file_uploader("안내지", type=["jpg","jpeg","png"], key="new_info")
+                info = st.file_uploader("📋 안내지", type=["jpg","jpeg","png"], key="new_info")
+                if info:
+                    st.image(info, width=100)
             
-            if st.button("💾 상품 등록", type="primary"):
+            if st.button("💾 기성상품 등록", type="primary", use_container_width=True):
                 if product_name:
-                    result = add_service(product_name, "", None)  # owner_id=None (관리자 공용)
+                    result = add_service(product_name, "", None)
                     if result.get("success"):
                         svc_id = result["id"]
                         
@@ -595,32 +635,42 @@ def show_admin_settings():
                         
                         st.success(f"'{product_name}' 등록됨!")
                         st.rerun()
+                else:
+                    st.error("상품명을 입력하세요.")
         
         st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
-        st.markdown("**등록된 상품**")
+        st.markdown("**등록된 기성상품**")
         
         services = get_admin_services()
-        for svc in services:
-            with st.expander(f"📌 {svc['name']}"):
-                chapters = get_chapters_by_service(svc['id'])
-                guidelines = get_guidelines_by_service(svc['id'])
-                templates = get_templates_by_service(svc['id'])
-                
-                st.markdown(f"**목차**: {len(chapters)}개")
-                st.markdown(f"**지침**: {'있음' if guidelines else '없음'}")
-                
-                t_cols = st.columns(3)
-                for idx, tt in enumerate(["cover", "background", "info"]):
-                    with t_cols[idx]:
-                        t_list = [t for t in templates if t['template_type'] == tt]
-                        if t_list and t_list[0].get('image_path') and os.path.exists(t_list[0]['image_path']):
-                            st.image(t_list[0]['image_path'], width=60)
-                        else:
-                            st.caption(f"{TEMPLATE_TYPES[tt]}: 없음")
-                
-                if st.button("🗑️ 삭제", key=f"del_{svc['id']}"):
-                    delete_service(svc['id'])
-                    st.rerun()
+        if not services:
+            st.info("등록된 기성상품이 없습니다.")
+        else:
+            for svc in services:
+                with st.expander(f"📌 {svc['name']}"):
+                    chapters = get_chapters_by_service(svc['id'])
+                    guidelines = get_guidelines_by_service(svc['id'])
+                    templates = get_templates_by_service(svc['id'])
+                    
+                    st.markdown(f"**목차**: {len(chapters)}개")
+                    if chapters:
+                        for ch in chapters:
+                            st.caption(f"  • {ch['title']}")
+                    
+                    st.markdown(f"**지침**: {'있음' if guidelines else '없음'}")
+                    
+                    st.markdown("**디자인**")
+                    t_cols = st.columns(3)
+                    for idx, tt in enumerate(["cover", "background", "info"]):
+                        with t_cols[idx]:
+                            t_list = [t for t in templates if t['template_type'] == tt]
+                            if t_list and t_list[0].get('image_path') and os.path.exists(t_list[0]['image_path']):
+                                st.image(t_list[0]['image_path'], width=80)
+                            else:
+                                st.caption(f"{TEMPLATE_TYPES[tt]}: 없음")
+                    
+                    if st.button("🗑️ 삭제", key=f"del_{svc['id']}"):
+                        delete_service(svc['id'])
+                        st.rerun()
 
 # ============================================
 # 📦 서비스 작업
@@ -634,106 +684,150 @@ def show_service_work():
     
     # API 확인
     api_key = get_api_key()
-    if not api_key:
-        st.error("⚠️ API 키가 설정되지 않았습니다.")
-        return
     
     selected_service = None
     
-    # ===== 상품 선택 영역 (1단계, 3단계, 관리자) =====
-    if level in [1, 3] or user['is_admin']:
-        st.markdown('<span class="section-title">📋 상품 선택</span>', unsafe_allow_html=True)
+    # ===== 상품 타입 선택 =====
+    st.markdown('<span class="section-title">1️⃣ 상품 유형 선택</span>', unsafe_allow_html=True)
+    
+    # 등급에 따른 옵션 표시
+    if level == 1:
+        options = ["📦 기성상품"]
+    elif level == 2:
+        options = ["🔧 개별상품"]
+    else:
+        options = ["📦 기성상품", "🔧 개별상품"]
+    
+    product_type = st.radio("상품 유형", options, horizontal=True, key="prod_type")
+    
+    st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+    
+    # ===== 기성상품 선택 =====
+    if "기성상품" in product_type:
+        st.markdown('<span class="section-title">2️⃣ 기성상품 선택</span>', unsafe_allow_html=True)
         
         admin_services = get_admin_services()
         if admin_services:
             svc_names = [s['name'] for s in admin_services]
-            selected_name = st.selectbox("관리자 상품", svc_names, key="admin_svc")
+            selected_name = st.selectbox("기성상품 목록", svc_names, key="ready_svc")
             selected_service = next((s for s in admin_services if s['name'] == selected_name), None)
             
             if selected_service:
                 chapters = get_chapters_by_service(selected_service['id'])
-                st.success(f"✅ '{selected_name}' 선택됨 (목차 {len(chapters)}개)")
+                templates = get_templates_by_service(selected_service['id'])
+                
+                col1, col2 = st.columns([2, 1])
+                with col1:
+                    st.success(f"✅ '{selected_name}' 선택됨 (목차 {len(chapters)}개)")
+                with col2:
+                    t_cols = st.columns(3)
+                    for idx, tt in enumerate(["cover", "background", "info"]):
+                        with t_cols[idx]:
+                            t_list = [t for t in templates if t['template_type'] == tt]
+                            if t_list and t_list[0].get('image_path') and os.path.exists(t_list[0]['image_path']):
+                                st.image(t_list[0]['image_path'], width=50)
         else:
-            st.info("등록된 관리자 상품이 없습니다.")
-        
-        st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+            st.warning("등록된 기성상품이 없습니다.")
     
-    # ===== 개별 상품 영역 (2단계, 3단계, 관리자) =====
-    if level in [2, 3] or user['is_admin']:
-        st.markdown('<span class="section-title">🔧 개별 상품</span>', unsafe_allow_html=True)
+    # ===== 개별상품 =====
+    elif "개별상품" in product_type:
+        st.markdown('<span class="section-title">2️⃣ 개별상품</span>', unsafe_allow_html=True)
         
-        # 내 상품 목록
         my_services = get_user_services(user['id'])
         
         if my_services:
-            my_names = [s['name'] for s in my_services]
-            selected_my = st.selectbox("내 상품", ["새로 만들기"] + my_names, key="my_svc")
+            my_names = ["➕ 새로 만들기"] + [s['name'] for s in my_services]
+            selected_my = st.selectbox("내 상품 목록", my_names, key="my_svc")
             
-            if selected_my != "새로 만들기":
+            if selected_my != "➕ 새로 만들기":
                 selected_service = next((s for s in my_services if s['name'] == selected_my), None)
                 if selected_service:
                     chapters = get_chapters_by_service(selected_service['id'])
                     st.success(f"✅ '{selected_my}' 선택됨 (목차 {len(chapters)}개)")
+        else:
+            selected_my = "➕ 새로 만들기"
         
-        # 새로 만들기
-        with st.expander("➕ 개별 상품 만들기", expanded=False):
-            my_name = st.text_input("상품명", key="my_prod")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                my_chapters = st.text_area("목차", height=100, key="my_ch")
-            with col2:
-                my_guide = st.text_area("지침", height=100, key="my_g")
-            
-            d_cols = st.columns(3)
-            with d_cols[0]:
-                my_cover = st.file_uploader("표지", type=["jpg","jpeg","png"], key="my_cover")
-            with d_cols[1]:
-                my_bg = st.file_uploader("내지", type=["jpg","jpeg","png"], key="my_bg")
-            with d_cols[2]:
-                my_info = st.file_uploader("안내지", type=["jpg","jpeg","png"], key="my_info")
-            
-            if st.button("💾 저장", key="save_my"):
-                if my_name:
-                    result = add_service(my_name, "", user['id'])
-                    if result.get("success"):
-                        svc_id = result["id"]
-                        
-                        if my_chapters:
+        if not my_services or selected_my == "➕ 새로 만들기":
+            with st.expander("➕ 개별상품 만들기", expanded=True):
+                my_name = st.text_input("상품명", key="my_prod")
+                
+                st.markdown("**📑 목차** (줄바꿈으로 구분)")
+                my_chapters = st.text_area("목차 입력", height=200, key="my_ch",
+                    placeholder="1. 올해의 총운\n2. 재물운\n3. 건강운")
+                
+                st.markdown("**📜 AI 작성 지침**")
+                my_guide = st.text_area("지침 입력", height=200, key="my_g",
+                    placeholder="- 긍정적인 톤\n- 300자 이상\n- 구체적 조언 포함")
+                
+                st.markdown("**🎨 디자인**")
+                d_cols = st.columns(3)
+                with d_cols[0]:
+                    my_cover = st.file_uploader("📕 표지", type=["jpg","jpeg","png"], key="my_cover")
+                    if my_cover:
+                        st.image(my_cover, width=80)
+                with d_cols[1]:
+                    my_bg = st.file_uploader("📄 내지", type=["jpg","jpeg","png"], key="my_bg")
+                    if my_bg:
+                        st.image(my_bg, width=80)
+                with d_cols[2]:
+                    my_info = st.file_uploader("📋 안내지", type=["jpg","jpeg","png"], key="my_info")
+                    if my_info:
+                        st.image(my_info, width=80)
+                
+                if st.button("💾 개별상품 저장", type="primary", use_container_width=True):
+                    if my_name and my_chapters:
+                        result = add_service(my_name, "", user['id'])
+                        if result.get("success"):
+                            svc_id = result["id"]
+                            
                             for idx, ch in enumerate(my_chapters.strip().split("\n")):
                                 if ch.strip():
                                     add_chapter(svc_id, ch.strip(), "", idx+1)
-                        
-                        if my_guide:
-                            add_guideline(svc_id, f"{my_name} 지침", my_guide)
-                        
-                        if my_cover:
-                            path = save_uploaded_file(my_cover, f"{my_name}_cover")
-                            add_template(svc_id, "cover", "표지", path)
-                        if my_bg:
-                            path = save_uploaded_file(my_bg, f"{my_name}_bg")
-                            add_template(svc_id, "background", "내지", path)
-                        if my_info:
-                            path = save_uploaded_file(my_info, f"{my_name}_info")
-                            add_template(svc_id, "info", "안내지", path)
-                        
-                        st.success("저장됨!")
-                        st.rerun()
-        
-        st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+                            
+                            if my_guide:
+                                add_guideline(svc_id, f"{my_name} 지침", my_guide)
+                            
+                            if my_cover:
+                                path = save_uploaded_file(my_cover, f"{my_name}_cover")
+                                add_template(svc_id, "cover", "표지", path)
+                            if my_bg:
+                                path = save_uploaded_file(my_bg, f"{my_name}_bg")
+                                add_template(svc_id, "background", "내지", path)
+                            if my_info:
+                                path = save_uploaded_file(my_info, f"{my_name}_info")
+                                add_template(svc_id, "info", "안내지", path)
+                            
+                            st.success("저장됨!")
+                            st.rerun()
+                    else:
+                        st.error("상품명과 목차를 입력하세요.")
+    
+    st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
     
     # ===== PDF 생성 영역 =====
-    st.markdown('<span class="section-title">📄 PDF 생성</span>', unsafe_allow_html=True)
+    st.markdown('<span class="section-title">3️⃣ PDF 생성</span>', unsafe_allow_html=True)
     
-    if not selected_service:
-        st.warning("상품을 먼저 선택하세요.")
-        return
+    # 오류 검증
+    if selected_service:
+        is_ready, errors = verify_pdf_generation_ready(selected_service['id'], api_key)
+        
+        for err in errors:
+            if "❌" in err:
+                st.error(err)
+            else:
+                st.warning(err)
+        
+        if not is_ready:
+            st.stop()
+    else:
+        st.warning("⚠️ 상품을 먼저 선택하세요.")
+        st.stop()
     
     # 폰트 크기
     font_size = st.slider("글자 크기", 10, 18, 12, key="font")
     
     # 고객 파일
-    uploaded = st.file_uploader("고객 엑셀 파일 (.xlsx)", type=["xlsx", "xls"], key="cust")
+    uploaded = st.file_uploader("📂 고객 엑셀 파일 (.xlsx)", type=["xlsx", "xls"], key="cust")
     
     if uploaded:
         df = pd.read_excel(uploaded)
@@ -754,6 +848,15 @@ def show_service_work():
         
         st.markdown("---")
         
+        # 고객 목록 헤더
+        header_cols = st.columns([3, 4, 1, 1])
+        header_cols[0].markdown("**이름**")
+        header_cols[1].markdown("**진행률**")
+        header_cols[2].markdown("**상태**")
+        header_cols[3].markdown("**다운로드**")
+        
+        st.markdown("---")
+        
         # 고객 목록
         for idx, row in df.iterrows():
             cust_name = row[name_col]
@@ -766,15 +869,13 @@ def show_service_work():
             
             with col2:
                 if is_done:
-                    st.progress(1.0)
+                    st.progress(1.0, text="100%")
                 else:
-                    st.progress(0.0)
+                    st.progress(0.0, text="0%")
             
             with col3:
                 if is_done:
-                    st.markdown('<span class="badge-done">완료</span>', unsafe_allow_html=True)
-                else:
-                    st.markdown('<span class="badge-pending">대기</span>', unsafe_allow_html=True)
+                    st.markdown('<span class="badge-done">✅ 완료</span>', unsafe_allow_html=True)
             
             with col4:
                 if is_done:
@@ -785,48 +886,45 @@ def show_service_work():
         
         st.markdown("---")
         
-        # 버튼
-        col1, col2 = st.columns(2)
+        # 변환 버튼
+        done_count = len(st.session_state.completed_customers)
+        total_count = len(df)
         
-        with col1:
-            if st.button("🚀 PDF 생성", type="primary", use_container_width=True):
-                pending = [i for i in range(len(df)) if i not in st.session_state.completed_customers]
+        st.info(f"📊 완료: {done_count}/{total_count}")
+        
+        if st.button("🚀 PDF 생성 시작", type="primary", use_container_width=True):
+            pending = [i for i in range(len(df)) if i not in st.session_state.completed_customers]
+            
+            if not pending:
+                st.warning("생성할 고객이 없습니다.")
+            else:
+                progress_bar = st.progress(0, text="준비 중...")
+                status = st.empty()
                 
-                if not pending:
-                    st.warning("생성할 고객이 없습니다.")
-                else:
-                    progress_bar = st.progress(0)
-                    status = st.empty()
+                for i, idx in enumerate(pending):
+                    row = df.iloc[idx]
+                    cust_name = row[name_col]
                     
-                    for i, idx in enumerate(pending):
-                        row = df.iloc[idx]
-                        cust_name = row[name_col]
-                        
-                        status.text(f"📝 {cust_name} 생성 중... ({i+1}/{len(pending)})")
-                        progress_bar.progress((i + 1) / len(pending))
-                        
-                        pdf_bytes = generate_pdf_for_customer(
-                            row.to_dict(),
-                            selected_service['id'],
-                            font_size,
-                            api_key
-                        )
-                        
-                        if pdf_bytes:
-                            st.session_state.completed_customers[idx] = True
-                            st.session_state.generated_pdfs[idx] = pdf_bytes
-                            st.toast(f"🔔 {cust_name} 완료!")
+                    # 진행률 계산
+                    progress = (i + 1) / len(pending)
+                    progress_bar.progress(progress, text=f"{int(progress * 100)}%")
+                    status.text(f"📝 {cust_name} 생성 중... ({i+1}/{len(pending)})")
                     
-                    status.text("✅ 완료!")
-                    st.balloons()
-                    play_sound()
-                    st.rerun()
-        
-        with col2:
-            if st.button("🔄 초기화", use_container_width=True):
-                st.session_state.completed_customers = {}
-                st.session_state.generated_pdfs = {}
-                st.session_state.customers_df = None
+                    pdf_bytes = generate_pdf_for_customer(
+                        row.to_dict(),
+                        selected_service['id'],
+                        font_size,
+                        api_key
+                    )
+                    
+                    if pdf_bytes:
+                        st.session_state.completed_customers[idx] = True
+                        st.session_state.generated_pdfs[idx] = pdf_bytes
+                        st.toast(f"🔔 {cust_name} 완료!")
+                
+                status.text("✅ 모든 PDF 생성 완료!")
+                st.balloons()
+                play_sound()
                 st.rerun()
 
 # ============================================
@@ -894,7 +992,7 @@ def show_notices():
     if is_admin():
         with st.expander("✏️ 새 공지", expanded=False):
             title = st.text_input("제목", key="n_title")
-            content = st.text_area("내용", height=100, key="n_content")
+            content = st.text_area("내용", height=150, key="n_content")
             pinned = st.checkbox("📌 고정")
             
             if st.button("💾 등록", type="primary"):
