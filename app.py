@@ -73,7 +73,7 @@ st.markdown("""
 defaults = {
     'logged_in': False, 'user': None, 'customers_df': None,
     'completed_customers': {}, 'generated_pdfs': {}, 'selected_customers': set(),
-    'input_mode': 'excel', 'manual_completed': {}, 'manual_pdfs': {},
+    'input_mode': 'excel', 'manual_completed': False, 'manual_pdf': None,
 }
 for key, val in defaults.items():
     if key not in st.session_state:
@@ -396,7 +396,7 @@ def generate_pdf_for_customer(customer_data: dict, service: dict, api_key: str,
 
 
 def generate_pdf_with_progress(customer_data: dict, service: dict, api_key: str,
-                               progress_bar, detail_text) -> bytes:
+                               progress_bar, detail_text, custom_name: str = None) -> bytes:
     """고객용 PDF 생성 - 실시간 진행률 표시"""
     service_id = service['id']
     chapters = get_chapters_by_service(service_id)
@@ -407,12 +407,18 @@ def generate_pdf_with_progress(customer_data: dict, service: dict, api_key: str,
     templates = {t['template_type']: t['image_path'] for t in templates_list 
                  if t.get('image_path') and os.path.exists(t['image_path'])}
     
-    name_col = None
-    for col in ['이름', 'name', 'Name', '성명', '고객명']:
-        if col in customer_data:
-            name_col = col
-            break
-    customer_name = customer_data.get(name_col, "고객") if name_col else "고객"
+    # 표지용 이름 결정
+    if custom_name:
+        # 궁합 등 2명인 경우 직접 전달받은 이름 사용
+        customer_name = custom_name
+    else:
+        # 1명인 경우 데이터에서 추출
+        name_col = None
+        for col in ['이름', 'name', 'Name', '성명', '고객명']:
+            if col in customer_data:
+                name_col = col
+                break
+        customer_name = customer_data.get(name_col, "고객") if name_col else "고객"
     
     font_settings = {k: service.get(k, v) for k, v in 
                      {"font_family": "NanumGothic", "font_size_title": 24, "font_size_subtitle": 16,
@@ -440,8 +446,14 @@ def generate_pdf_with_progress(customer_data: dict, service: dict, api_key: str,
     
     detail_text.caption("📄 PDF 생성 중...")
     
-    # 표지에 이름 + "님" 표시
-    return create_pdf_document(f"{customer_name}님", chapters_content, templates, font_settings)
+    # 표지 이름 처리
+    if custom_name:
+        # custom_name은 이미 "님" 포함 (예: "홍길동님" 또는 "홍길동님 & 김철수님")
+        cover_display_name = custom_name
+    else:
+        cover_display_name = f"{customer_name}님"
+    
+    return create_pdf_document(cover_display_name, chapters_content, templates, font_settings)
 
 # ============================================
 # 로그인 페이지
@@ -1099,13 +1111,13 @@ def show_service_work():
         col_reset = st.columns([3, 1])
         with col_reset[1]:
             if st.button("🔄 초기화", key="reset_manual", use_container_width=True):
-                st.session_state.manual_customers = []
-                st.session_state.manual_completed = {}
-                st.session_state.manual_pdfs = {}
+                st.session_state.manual_completed = False
+                st.session_state.manual_pdf = None
                 st.rerun()
         
         # 고객 수 선택
-        num_customers = st.radio("고객 수", [1, 2], horizontal=True, key="num_cust")
+        num_customers = st.radio("고객 수", [1, 2], horizontal=True, key="num_cust",
+                                help="2명 입력 시 궁합/재회 등 합산 PDF 1개 생성")
         
         manual_customers = []
         
@@ -1132,88 +1144,99 @@ def show_service_work():
             if i < num_customers - 1:
                 st.markdown("---")
         
-        if manual_customers:
+        # 세션 초기화
+        if 'manual_completed' not in st.session_state:
+            st.session_state.manual_completed = False
+        if 'manual_pdf' not in st.session_state:
+            st.session_state.manual_pdf = None
+        
+        # 필수 입력 확인
+        required_count = num_customers
+        has_all_names = len(manual_customers) == required_count
+        
+        if has_all_names:
             st.markdown("---")
             
-            # 입력된 고객 목록 표시
+            # 1명 또는 2명에 따른 표시
+            if num_customers == 1:
+                display_name = manual_customers[0]['이름']
+                cover_name = f"{display_name}님"  # 표지용: "홍길동님"
+                combined_data = manual_customers[0]
+            else:
+                # 2명: 궁합/재회용 - 데이터 합치기
+                display_name = f"{manual_customers[0]['이름']} & {manual_customers[1]['이름']}"
+                cover_name = f"{manual_customers[0]['이름']}님 & {manual_customers[1]['이름']}님"  # 표지용: "홍길동님 & 김철수님"
+                combined_data = {
+                    "고객1_이름": manual_customers[0]['이름'],
+                    "고객1_나이": manual_customers[0]['나이'],
+                    "고객1_생년월일시": manual_customers[0]['생년월일시'],
+                    "고객1_이메일": manual_customers[0]['이메일'],
+                    "고객2_이름": manual_customers[1]['이름'],
+                    "고객2_나이": manual_customers[1]['나이'],
+                    "고객2_생년월일시": manual_customers[1]['생년월일시'],
+                    "고객2_이메일": manual_customers[1]['이메일'],
+                }
+            
             st.markdown("**📋 입력된 고객**")
             
-            # 세션에 저장
-            if 'manual_completed' not in st.session_state:
-                st.session_state.manual_completed = {}
-            if 'manual_pdfs' not in st.session_state:
-                st.session_state.manual_pdfs = {}
+            # 상태 표시
+            is_done = st.session_state.manual_completed
             
-            header_cols = st.columns([2, 2, 2, 1, 1])
-            header_cols[0].markdown("**이름**")
-            header_cols[1].markdown("**생년월일시**")
-            header_cols[2].markdown("**상태**")
-            header_cols[3].markdown("**완료**")
-            header_cols[4].markdown("**다운**")
-            
-            for idx, cust in enumerate(manual_customers):
-                is_done = idx in st.session_state.manual_completed
-                
-                col1, col2, col3, col4, col5 = st.columns([2, 2, 2, 1, 1])
-                
-                with col1:
-                    st.write(f"**{cust['이름']}**")
-                with col2:
-                    st.write(cust['생년월일시'] or "-")
-                with col3:
-                    if is_done:
-                        st.progress(1.0, text="100%")
-                    else:
-                        st.progress(0.0, text="대기")
-                with col4:
-                    if is_done:
-                        st.markdown("✅")
-                with col5:
-                    if is_done:
-                        pdf_data = st.session_state.manual_pdfs.get(idx)
-                        if pdf_data:
-                            st.download_button("⬇️", pdf_data, f"{cust['이름']}_운세.pdf",
-                                              "application/pdf", key=f"dl_manual_{idx}")
+            col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
+            with col1:
+                st.write(f"**{display_name}**")
+            with col2:
+                if is_done:
+                    st.progress(1.0, text="100%")
+                else:
+                    st.progress(0.0, text="대기")
+            with col3:
+                if is_done:
+                    st.markdown("✅")
+            with col4:
+                if is_done and st.session_state.manual_pdf:
+                    filename = f"{manual_customers[0]['이름']}_운세.pdf" if num_customers == 1 else f"{manual_customers[0]['이름']}_{manual_customers[1]['이름']}_궁합.pdf"
+                    st.download_button("⬇️", st.session_state.manual_pdf, filename,
+                                      "application/pdf", key="dl_manual")
             
             st.markdown("---")
             
-            pending = [i for i in range(len(manual_customers)) if i not in st.session_state.manual_completed]
-            
-            st.info(f"📊 입력: {len(manual_customers)}명 | 완료: {len(st.session_state.manual_completed)}/{len(manual_customers)}")
-            
-            if st.button(f"🚀 {len(pending)}명 PDF 생성", type="primary", use_container_width=True, key="gen_manual"):
-                if not pending:
-                    st.warning("생성할 고객이 없습니다.")
-                else:
+            if not is_done:
+                st.info(f"📊 {num_customers}명 입력 → PDF 1개 생성")
+                
+                if st.button("🚀 PDF 생성", type="primary", use_container_width=True, key="gen_manual"):
                     status_area = st.empty()
                     current_progress_bar = st.empty()
                     current_detail = st.empty()
                     
-                    for i, idx in enumerate(pending):
-                        cust = manual_customers[idx]
-                        cust_name = cust['이름']
-                        
-                        status_area.markdown(f"### 📝 {cust_name} 생성 중... ({i+1}/{len(pending)})")
-                        
-                        pdf_bytes = generate_pdf_with_progress(
-                            cust, selected_service, api_key,
-                            current_progress_bar, current_detail
-                        )
-                        
-                        if pdf_bytes:
-                            st.session_state.manual_completed[idx] = True
-                            st.session_state.manual_pdfs[idx] = pdf_bytes
-                            st.toast(f"🔔 {cust_name} 완료!")
-                        
-                        current_progress_bar.progress(1.0, text="100% 완료")
-                        time.sleep(0.3)
+                    status_area.markdown(f"### 📝 {display_name} 생성 중...")
                     
-                    status_area.markdown("### ✅ 모든 PDF 생성 완료!")
+                    # PDF 생성 (2명이면 합친 데이터로)
+                    pdf_bytes = generate_pdf_with_progress(
+                        combined_data, selected_service, api_key,
+                        current_progress_bar, current_detail,
+                        custom_name=cover_name  # 표지용 이름 전달 (이미 "님" 포함)
+                    )
+                    
+                    if pdf_bytes:
+                        st.session_state.manual_completed = True
+                        st.session_state.manual_pdf = pdf_bytes
+                        st.toast(f"🔔 {display_name} 완료!")
+                    
+                    current_progress_bar.progress(1.0, text="100% 완료")
+                    time.sleep(0.3)
+                    
+                    status_area.markdown("### ✅ PDF 생성 완료!")
                     current_progress_bar.empty()
                     current_detail.empty()
                     st.balloons()
                     time.sleep(1)
                     st.rerun()
+        else:
+            if num_customers == 1:
+                st.warning("⚠️ 이름을 입력하세요.")
+            else:
+                st.warning("⚠️ 두 고객의 이름을 모두 입력하세요.")
 
 # ============================================
 # 👤 MyPage / 📢 공지사항
