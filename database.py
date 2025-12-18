@@ -103,6 +103,13 @@ class Service(Base):
     font_size_body = Column(Integer, default=12)     # 본문 크기
     letter_spacing = Column(Integer, default=0)      # 자간 (%)
     line_height = Column(Integer, default=180)       # 행간 (%)
+    char_width = Column(Integer, default=100)        # 장평 (%)
+    
+    # 여백 설정 (mm)
+    margin_top = Column(Integer, default=25)
+    margin_bottom = Column(Integer, default=25)
+    margin_left = Column(Integer, default=25)
+    margin_right = Column(Integer, default=25)
     
     # 관계
     owner = relationship("User", back_populates="services")
@@ -181,6 +188,34 @@ class Notice(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     author = relationship("User", back_populates="notices")
+
+
+class ChapterLibrary(Base):
+    """목차 자료실 테이블"""
+    __tablename__ = "chapter_library"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # NULL=공용
+    title = Column(String(200), nullable=False)
+    content = Column(Text, nullable=True)
+    category = Column(String(50), nullable=True)  # 사주, 타로, 연애 등
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class GuidelineLibrary(Base):
+    """지침 자료실 테이블"""
+    __tablename__ = "guideline_library"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # NULL=공용
+    title = Column(String(200), nullable=False)
+    content = Column(Text, nullable=False)
+    category = Column(String(50), nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 # ============================================
