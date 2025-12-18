@@ -980,9 +980,10 @@ def show_service_work():
                     st.session_state.selected_customers = set()
         with col_ctrl2:
             if st.button("🔄 초기화", use_container_width=True):
+                st.session_state.customers_df = None
                 st.session_state.completed_customers = {}
                 st.session_state.generated_pdfs = {}
-                st.session_state.selected_customers = set(range(len(df)))
+                st.session_state.selected_customers = set()
                 st.rerun()
         
         st.markdown("---")
