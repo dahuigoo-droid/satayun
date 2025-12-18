@@ -1,8 +1,8 @@
-streamlit==1.28.0
-pandas==2.0.3
-openpyxl==3.1.2
-sqlalchemy==2.0.21
-psycopg2-binary==2.9.9
-bcrypt==4.0.1
-openai==1.3.0
-reportlab==4.0.4
+streamlit
+pandas
+openpyxl
+sqlalchemy
+psycopg2-binary
+bcrypt
+openai
+reportlab
