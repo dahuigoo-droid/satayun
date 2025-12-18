@@ -73,6 +73,7 @@ st.markdown("""
 defaults = {
     'logged_in': False, 'user': None, 'customers_df': None,
     'completed_customers': {}, 'generated_pdfs': {}, 'selected_customers': set(),
+    'input_mode': 'excel', 'manual_completed': {}, 'manual_pdfs': {},
 }
 for key, val in defaults.items():
     if key not in st.session_state:
@@ -276,12 +277,15 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
         if cover_path and os.path.exists(cover_path):
             try:
                 c.drawImage(cover_path, 0, 0, width=page_width, height=page_height)
+                # 표지 이미지 위에 고객 이름 표시 (상단 중앙)
+                c.setFont(font_name, title_size)
+                c.drawCentredString(page_width/2, page_height - 80, f"{customer_name}의 운세")
             except:
                 c.setFont(font_name, title_size)
-                c.drawCentredString(page_width/2, page_height/2, f"{customer_name}님의 운세")
+                c.drawCentredString(page_width/2, page_height/2, f"{customer_name}의 운세")
         else:
             c.setFont(font_name, title_size)
-            c.drawCentredString(page_width/2, page_height/2, f"{customer_name}님의 운세")
+            c.drawCentredString(page_width/2, page_height/2, f"{customer_name}의 운세")
         c.showPage()
         
         # 2. 본문
@@ -387,7 +391,8 @@ def generate_pdf_for_customer(customer_data: dict, service: dict, api_key: str,
             progress = (i + 1) / total_chapters
             progress_callback(customer_idx, progress)
     
-    return create_pdf_document(customer_name, chapters_content, templates, font_settings)
+    # 표지에 이름 + "님" 표시
+    return create_pdf_document(f"{customer_name}님", chapters_content, templates, font_settings)
 
 
 def generate_pdf_with_progress(customer_data: dict, service: dict, api_key: str,
@@ -434,7 +439,9 @@ def generate_pdf_with_progress(customer_data: dict, service: dict, api_key: str,
         time.sleep(0.1)  # 시각적 효과
     
     detail_text.caption("📄 PDF 생성 중...")
-    return create_pdf_document(customer_name, chapters_content, templates, font_settings)
+    
+    # 표지에 이름 + "님" 표시
+    return create_pdf_document(f"{customer_name}님", chapters_content, templates, font_settings)
 
 # ============================================
 # 로그인 페이지
@@ -948,130 +955,265 @@ def show_service_work():
         st.warning("⚠️ 상품을 먼저 선택하세요.")
         st.stop()
     
-    # 고객 파일 업로드
-    uploaded = st.file_uploader("📂 고객 엑셀 파일 (.xlsx)", type=["xlsx", "xls"], key="cust")
+    # 고객 정보 입력 방식 선택
+    st.markdown("**📋 고객 정보 입력 방식**")
+    input_method = st.radio(
+        "입력 방식",
+        ["📂 엑셀 업로드", "✏️ 직접 입력 (최대 2명)"],
+        horizontal=True,
+        key="input_method"
+    )
     
-    if uploaded:
-        df = pd.read_excel(uploaded)
-        st.session_state.customers_df = df
-        st.session_state.selected_customers = set(range(len(df)))
-        st.success(f"✅ {len(df)}명 로드됨")
+    st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
     
-    if st.session_state.customers_df is not None:
-        df = st.session_state.customers_df
+    # ===== 엑셀 업로드 방식 =====
+    if "엑셀" in input_method:
+        uploaded = st.file_uploader("📂 고객 엑셀 파일 (.xlsx)", type=["xlsx", "xls"], key="cust")
         
-        name_col = None
-        for col in ['이름', 'name', 'Name', '성명', '고객명']:
-            if col in df.columns:
-                name_col = col
-                break
-        if not name_col:
-            name_col = df.columns[0]
+        if uploaded:
+            df = pd.read_excel(uploaded)
+            st.session_state.customers_df = df
+            st.session_state.selected_customers = set(range(len(df)))
+            st.session_state.input_mode = "excel"
+            st.success(f"✅ {len(df)}명 로드됨")
         
-        st.markdown("---")
-        
-        # 전체 선택 + 초기화
-        col_ctrl1, col_ctrl2 = st.columns([1, 1])
-        with col_ctrl1:
-            if st.checkbox("전체 선택", value=len(st.session_state.selected_customers) == len(df)):
-                st.session_state.selected_customers = set(range(len(df)))
-            else:
-                if len(st.session_state.selected_customers) == len(df):
+        if st.session_state.customers_df is not None and st.session_state.get('input_mode') == 'excel':
+            df = st.session_state.customers_df
+            
+            name_col = None
+            for col in ['이름', 'name', 'Name', '성명', '고객명']:
+                if col in df.columns:
+                    name_col = col
+                    break
+            if not name_col:
+                name_col = df.columns[0]
+            
+            st.markdown("---")
+            
+            # 전체 선택 + 초기화
+            col_ctrl1, col_ctrl2 = st.columns([1, 1])
+            with col_ctrl1:
+                if st.checkbox("전체 선택", value=len(st.session_state.selected_customers) == len(df)):
+                    st.session_state.selected_customers = set(range(len(df)))
+                else:
+                    if len(st.session_state.selected_customers) == len(df):
+                        st.session_state.selected_customers = set()
+            with col_ctrl2:
+                if st.button("🔄 초기화", use_container_width=True):
+                    st.session_state.customers_df = None
+                    st.session_state.completed_customers = {}
+                    st.session_state.generated_pdfs = {}
                     st.session_state.selected_customers = set()
-        with col_ctrl2:
-            if st.button("🔄 초기화", use_container_width=True):
-                st.session_state.customers_df = None
-                st.session_state.completed_customers = {}
-                st.session_state.generated_pdfs = {}
-                st.session_state.selected_customers = set()
+                    st.rerun()
+            
+            st.markdown("---")
+            
+            # 헤더
+            header_cols = st.columns([0.5, 2.5, 2, 1, 1])
+            header_cols[0].markdown("**선택**")
+            header_cols[1].markdown("**이름**")
+            header_cols[2].markdown("**상태**")
+            header_cols[3].markdown("**완료**")
+            header_cols[4].markdown("**다운**")
+            
+            for idx, row in df.iterrows():
+                cust_name = row[name_col]
+                is_done = idx in st.session_state.completed_customers
+                
+                col0, col1, col2, col3, col4 = st.columns([0.5, 2.5, 2, 1, 1])
+                
+                with col0:
+                    checked = st.checkbox("", value=idx in st.session_state.selected_customers,
+                                         key=f"chk_{idx}", label_visibility="collapsed")
+                    if checked:
+                        st.session_state.selected_customers.add(idx)
+                    else:
+                        st.session_state.selected_customers.discard(idx)
+                
+                with col1:
+                    st.write(f"**{cust_name}**")
+                
+                with col2:
+                    if is_done:
+                        st.progress(1.0, text="100%")
+                    else:
+                        st.progress(0.0, text="대기")
+                
+                with col3:
+                    if is_done:
+                        st.markdown("✅")
+                
+                with col4:
+                    if is_done:
+                        pdf_data = st.session_state.generated_pdfs.get(idx)
+                        if pdf_data:
+                            st.download_button("⬇️", pdf_data, f"{cust_name}_운세.pdf",
+                                              "application/pdf", key=f"dl_{idx}")
+            
+            st.markdown("---")
+            
+            pending_selected = [i for i in st.session_state.selected_customers
+                              if i not in st.session_state.completed_customers]
+            
+            st.info(f"📊 선택: {len(st.session_state.selected_customers)}명 | 완료: {len(st.session_state.completed_customers)}/{len(df)}")
+            
+            if st.button(f"🚀 선택한 {len(pending_selected)}명 PDF 생성", type="primary", use_container_width=True):
+                if not pending_selected:
+                    st.warning("생성할 고객을 선택하세요.")
+                else:
+                    status_area = st.empty()
+                    current_progress_bar = st.empty()
+                    current_detail = st.empty()
+                    
+                    for i, idx in enumerate(pending_selected):
+                        row = df.iloc[idx]
+                        cust_name = row[name_col]
+                        
+                        status_area.markdown(f"### 📝 {cust_name} 생성 중... ({i+1}/{len(pending_selected)})")
+                        
+                        pdf_bytes = generate_pdf_with_progress(
+                            row.to_dict(), selected_service, api_key,
+                            current_progress_bar, current_detail
+                        )
+                        
+                        if pdf_bytes:
+                            st.session_state.completed_customers[idx] = True
+                            st.session_state.generated_pdfs[idx] = pdf_bytes
+                            st.toast(f"🔔 {cust_name} 완료!")
+                        
+                        current_progress_bar.progress(1.0, text="100% 완료")
+                        time.sleep(0.3)
+                    
+                    status_area.markdown("### ✅ 모든 PDF 생성 완료!")
+                    current_progress_bar.empty()
+                    current_detail.empty()
+                    st.balloons()
+                    time.sleep(1)
+                    st.rerun()
+    
+    # ===== 직접 입력 방식 =====
+    else:
+        st.markdown("**👤 고객 정보 직접 입력** (최대 2명)")
+        
+        # 초기화 버튼
+        col_reset = st.columns([3, 1])
+        with col_reset[1]:
+            if st.button("🔄 초기화", key="reset_manual", use_container_width=True):
+                st.session_state.manual_customers = []
+                st.session_state.manual_completed = {}
+                st.session_state.manual_pdfs = {}
                 st.rerun()
         
-        st.markdown("---")
+        # 고객 수 선택
+        num_customers = st.radio("고객 수", [1, 2], horizontal=True, key="num_cust")
         
-        # 헤더
-        header_cols = st.columns([0.5, 2.5, 2, 1, 1])
-        header_cols[0].markdown("**선택**")
-        header_cols[1].markdown("**이름**")
-        header_cols[2].markdown("**상태**")
-        header_cols[3].markdown("**완료**")
-        header_cols[4].markdown("**다운**")
+        manual_customers = []
         
-        for idx, row in df.iterrows():
-            cust_name = row[name_col]
-            is_done = idx in st.session_state.completed_customers
+        for i in range(num_customers):
+            st.markdown(f"**고객 {i+1}**")
+            cols = st.columns(4)
+            with cols[0]:
+                name = st.text_input("이름", key=f"manual_name_{i}", placeholder="홍길동")
+            with cols[1]:
+                age = st.number_input("나이", min_value=1, max_value=120, value=30, key=f"manual_age_{i}")
+            with cols[2]:
+                birth = st.text_input("생년월일시", key=f"manual_birth_{i}", placeholder="1990-01-01 09:30")
+            with cols[3]:
+                email = st.text_input("이메일", key=f"manual_email_{i}", placeholder="example@email.com")
             
-            col0, col1, col2, col3, col4 = st.columns([0.5, 2.5, 2, 1, 1])
+            if name:
+                manual_customers.append({
+                    "이름": name,
+                    "나이": age,
+                    "생년월일시": birth,
+                    "이메일": email
+                })
             
-            with col0:
-                checked = st.checkbox("", value=idx in st.session_state.selected_customers,
-                                     key=f"chk_{idx}", label_visibility="collapsed")
-                if checked:
-                    st.session_state.selected_customers.add(idx)
-                else:
-                    st.session_state.selected_customers.discard(idx)
-            
-            with col1:
-                st.write(f"**{cust_name}**")
-            
-            with col2:
-                if is_done:
-                    st.progress(1.0, text="100%")
-                else:
-                    st.progress(0.0, text="대기")
-            
-            with col3:
-                if is_done:
-                    st.markdown("✅")
-            
-            with col4:
-                if is_done:
-                    pdf_data = st.session_state.generated_pdfs.get(idx)
-                    if pdf_data:
-                        st.download_button("⬇️", pdf_data, f"{cust_name}_운세.pdf",
-                                          "application/pdf", key=f"dl_{idx}")
+            if i < num_customers - 1:
+                st.markdown("---")
         
-        st.markdown("---")
-        
-        pending_selected = [i for i in st.session_state.selected_customers
-                          if i not in st.session_state.completed_customers]
-        
-        st.info(f"📊 선택: {len(st.session_state.selected_customers)}명 | 완료: {len(st.session_state.completed_customers)}/{len(df)}")
-        
-        if st.button(f"🚀 선택한 {len(pending_selected)}명 PDF 생성", type="primary", use_container_width=True):
-            if not pending_selected:
-                st.warning("생성할 고객을 선택하세요.")
-            else:
-                # 진행 상황 표시 영역
-                status_area = st.empty()
-                current_progress_bar = st.empty()
-                current_detail = st.empty()
+        if manual_customers:
+            st.markdown("---")
+            
+            # 입력된 고객 목록 표시
+            st.markdown("**📋 입력된 고객**")
+            
+            # 세션에 저장
+            if 'manual_completed' not in st.session_state:
+                st.session_state.manual_completed = {}
+            if 'manual_pdfs' not in st.session_state:
+                st.session_state.manual_pdfs = {}
+            
+            header_cols = st.columns([2, 2, 2, 1, 1])
+            header_cols[0].markdown("**이름**")
+            header_cols[1].markdown("**생년월일시**")
+            header_cols[2].markdown("**상태**")
+            header_cols[3].markdown("**완료**")
+            header_cols[4].markdown("**다운**")
+            
+            for idx, cust in enumerate(manual_customers):
+                is_done = idx in st.session_state.manual_completed
                 
-                for i, idx in enumerate(pending_selected):
-                    row = df.iloc[idx]
-                    cust_name = row[name_col]
-                    
-                    status_area.markdown(f"### 📝 {cust_name} 생성 중... ({i+1}/{len(pending_selected)})")
-                    
-                    # 이 고객의 PDF 생성 (진행바 직접 업데이트)
-                    pdf_bytes = generate_pdf_with_progress(
-                        row.to_dict(), selected_service, api_key,
-                        current_progress_bar, current_detail
-                    )
-                    
-                    if pdf_bytes:
-                        st.session_state.completed_customers[idx] = True
-                        st.session_state.generated_pdfs[idx] = pdf_bytes
-                        st.toast(f"🔔 {cust_name} 완료!")
-                    
-                    current_progress_bar.progress(1.0, text="100% 완료")
-                    time.sleep(0.3)
+                col1, col2, col3, col4, col5 = st.columns([2, 2, 2, 1, 1])
                 
-                status_area.markdown("### ✅ 모든 PDF 생성 완료!")
-                current_progress_bar.empty()
-                current_detail.empty()
-                st.balloons()
-                time.sleep(1)
-                st.rerun()
+                with col1:
+                    st.write(f"**{cust['이름']}**")
+                with col2:
+                    st.write(cust['생년월일시'] or "-")
+                with col3:
+                    if is_done:
+                        st.progress(1.0, text="100%")
+                    else:
+                        st.progress(0.0, text="대기")
+                with col4:
+                    if is_done:
+                        st.markdown("✅")
+                with col5:
+                    if is_done:
+                        pdf_data = st.session_state.manual_pdfs.get(idx)
+                        if pdf_data:
+                            st.download_button("⬇️", pdf_data, f"{cust['이름']}_운세.pdf",
+                                              "application/pdf", key=f"dl_manual_{idx}")
+            
+            st.markdown("---")
+            
+            pending = [i for i in range(len(manual_customers)) if i not in st.session_state.manual_completed]
+            
+            st.info(f"📊 입력: {len(manual_customers)}명 | 완료: {len(st.session_state.manual_completed)}/{len(manual_customers)}")
+            
+            if st.button(f"🚀 {len(pending)}명 PDF 생성", type="primary", use_container_width=True, key="gen_manual"):
+                if not pending:
+                    st.warning("생성할 고객이 없습니다.")
+                else:
+                    status_area = st.empty()
+                    current_progress_bar = st.empty()
+                    current_detail = st.empty()
+                    
+                    for i, idx in enumerate(pending):
+                        cust = manual_customers[idx]
+                        cust_name = cust['이름']
+                        
+                        status_area.markdown(f"### 📝 {cust_name} 생성 중... ({i+1}/{len(pending)})")
+                        
+                        pdf_bytes = generate_pdf_with_progress(
+                            cust, selected_service, api_key,
+                            current_progress_bar, current_detail
+                        )
+                        
+                        if pdf_bytes:
+                            st.session_state.manual_completed[idx] = True
+                            st.session_state.manual_pdfs[idx] = pdf_bytes
+                            st.toast(f"🔔 {cust_name} 완료!")
+                        
+                        current_progress_bar.progress(1.0, text="100% 완료")
+                        time.sleep(0.3)
+                    
+                    status_area.markdown("### ✅ 모든 PDF 생성 완료!")
+                    current_progress_bar.empty()
+                    current_detail.empty()
+                    st.balloons()
+                    time.sleep(1)
+                    st.rerun()
 
 # ============================================
 # 👤 MyPage / 📢 공지사항
