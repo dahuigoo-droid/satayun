@@ -30,6 +30,7 @@ def _service_to_dict(s) -> dict:
         "margin_bottom": s.margin_bottom or 25,
         "margin_left": s.margin_left or 25,
         "margin_right": s.margin_right or 25,
+        "target_pages": s.target_pages or 30,
     }
 
 
@@ -101,7 +102,7 @@ def add_service(name: str, description: str = "", owner_id: int = None,
                 font_size_subtitle: int = 16, font_size_body: int = 12,
                 letter_spacing: int = 0, line_height: int = 180,
                 char_width: int = 100, margin_top: int = 25, margin_bottom: int = 25,
-                margin_left: int = 25, margin_right: int = 25) -> dict:
+                margin_left: int = 25, margin_right: int = 25, target_pages: int = 30) -> dict:
     """서비스 추가"""
     if not SessionLocal:
         return {"success": False, "error": "데이터베이스 연결 실패"}
@@ -127,7 +128,8 @@ def add_service(name: str, description: str = "", owner_id: int = None,
             margin_top=margin_top,
             margin_bottom=margin_bottom,
             margin_left=margin_left,
-            margin_right=margin_right
+            margin_right=margin_right,
+            target_pages=target_pages
         )
         
         db.add(new_service)
@@ -146,7 +148,7 @@ def update_service(service_id: int, name: str = None, description: str = None, i
                    font_family: str = None, font_size_title: int = None, font_size_subtitle: int = None,
                    font_size_body: int = None, letter_spacing: int = None, line_height: int = None,
                    char_width: int = None, margin_top: int = None, margin_bottom: int = None,
-                   margin_left: int = None, margin_right: int = None) -> dict:
+                   margin_left: int = None, margin_right: int = None, target_pages: int = None) -> dict:
     """서비스 수정"""
     if not SessionLocal:
         return {"success": False, "error": "데이터베이스 연결 실패"}
@@ -187,6 +189,8 @@ def update_service(service_id: int, name: str = None, description: str = None, i
             service.margin_left = margin_left
         if margin_right is not None:
             service.margin_right = margin_right
+        if target_pages is not None:
+            service.target_pages = target_pages
         
         db.commit()
         return {"success": True, "message": "서비스가 수정되었습니다."}

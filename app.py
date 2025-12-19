@@ -191,12 +191,54 @@ def verify_pdf_generation_ready(service_id: int, api_key: str) -> tuple:
         return False, errors
     return True, errors
 
+def calculate_chars_per_page(font_size_body: int, line_height: int, margin_top: int, 
+                            margin_bottom: int, margin_left: int, margin_right: int) -> int:
+    """폰트/여백 설정 기반 페이지당 글자 수 계산
+    
+    A4 크기: 210mm x 297mm
+    """
+    # A4 사이즈 (mm)
+    page_width_mm = 210
+    page_height_mm = 297
+    
+    # 사용 가능한 영역
+    usable_width = page_width_mm - margin_left - margin_right
+    usable_height = page_height_mm - margin_top - margin_bottom
+    
+    # 글자 크기 (pt → mm 변환: 1pt ≈ 0.35mm)
+    char_height_mm = font_size_body * 0.35
+    char_width_mm = font_size_body * 0.35 * 0.5  # 한글은 대략 정사각형의 절반 폭
+    
+    # 행간 적용
+    line_spacing_mm = char_height_mm * (line_height / 100)
+    
+    # 페이지당 줄 수
+    lines_per_page = int(usable_height / line_spacing_mm)
+    
+    # 줄당 글자 수 (한글 기준)
+    chars_per_line = int(usable_width / char_width_mm)
+    
+    # 페이지당 글자 수 (여유분 80% 적용)
+    chars_per_page = int(lines_per_page * chars_per_line * 0.8)
+    
+    return max(chars_per_page, 300)  # 최소 300자
+
+
 def render_font_settings(prefix: str, defaults: dict = None):
     """폰트/여백 설정 UI"""
     if defaults is None:
         defaults = {"font_family": "NanumGothic", "font_size_title": 24, "font_size_subtitle": 16,
                     "font_size_body": 12, "letter_spacing": 0, "line_height": 180, "char_width": 100,
-                    "margin_top": 25, "margin_bottom": 25, "margin_left": 25, "margin_right": 25}
+                    "margin_top": 25, "margin_bottom": 25, "margin_left": 25, "margin_right": 25,
+                    "target_pages": 30}
+    
+    # 목표 페이지 설정
+    st.markdown("**📄 목표 페이지 수**")
+    target_cols = st.columns([2, 3])
+    with target_cols[0]:
+        target_pages = st.number_input("목표 페이지", 10, 200, defaults.get("target_pages", 30), 
+                                       step=5, key=f"{prefix}_pages",
+                                       help="본문 페이지 수 (표지/목차/차트 제외)")
     
     st.markdown("**🎨 폰트 설정**")
     col1, col2, col3 = st.columns(3)
@@ -230,20 +272,36 @@ def render_font_settings(prefix: str, defaults: dict = None):
     with m_cols[3]:
         margin_right = st.number_input("우측", 5, 50, defaults.get("margin_right", 25), key=f"{prefix}_mr")
     
+    # 페이지당 글자 수 계산 및 표시
+    chars_per_page = calculate_chars_per_page(font_size_body, line_height, margin_top, 
+                                               margin_bottom, margin_left, margin_right)
+    with target_cols[1]:
+        st.info(f"📊 현재 설정: 페이지당 약 **{chars_per_page:,}자** | 총 **{target_pages * chars_per_page:,}자** 예상")
+    
     return {"font_family": font_family, "font_size_title": font_size_title, "font_size_subtitle": font_size_subtitle,
             "font_size_body": font_size_body, "letter_spacing": letter_spacing, "line_height": line_height,
             "char_width": char_width, "margin_top": margin_top, "margin_bottom": margin_bottom,
-            "margin_left": margin_left, "margin_right": margin_right}
+            "margin_left": margin_left, "margin_right": margin_right, "target_pages": target_pages}
 
 # ============================================
 # PDF 생성 함수
 # ============================================
 
-def generate_content_with_gpt(api_key: str, chapter_title: str, guideline: str, customer_data: dict) -> str:
+def generate_content_with_gpt(api_key: str, chapter_title: str, guideline: str, 
+                              customer_data: dict, chars_per_chapter: int = 500) -> str:
+    """GPT로 챕터 내용 생성
+    
+    Args:
+        chars_per_chapter: 챕터당 목표 글자 수 (시스템이 자동 계산)
+    """
     try:
         from openai import OpenAI
         client = OpenAI(api_key=api_key)
         customer_info = "\n".join([f"- {k}: {v}" for k, v in customer_data.items()])
+        
+        # max_tokens 계산 (한글 1자 ≈ 2토큰, 여유분 1.5배)
+        max_tokens = min(int(chars_per_chapter * 2 * 1.5), 4000)
+        
         prompt = f"""당신은 전문 운세 작성가입니다.
 
 [고객 정보]
@@ -256,14 +314,16 @@ def generate_content_with_gpt(api_key: str, chapter_title: str, guideline: str, 
 {chapter_title}
 
 위 정보를 바탕으로 '{chapter_title}' 챕터 내용을 작성해주세요.
+
+⭐ 중요: 반드시 {chars_per_chapter}자 내외로 작성하세요. (허용 오차: ±10%)
 - 고객 정보를 반영하여 개인화된 내용
 - 긍정적이고 희망적인 톤
-- 300-500자 분량
-- 마크다운 없이 순수 텍스트"""
+- 마크다운 없이 순수 텍스트
+- 문단 나누어 가독성 높게 작성"""
         
         response = client.chat.completions.create(
             model="gpt-3.5-turbo", messages=[{"role": "user", "content": prompt}],
-            max_tokens=1000, temperature=0.7
+            max_tokens=max_tokens, temperature=0.7
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -947,16 +1007,34 @@ def generate_pdf_for_customer(customer_data: dict, service: dict, api_key: str,
     font_settings = {k: service.get(k, v) for k, v in 
                      {"font_family": "NanumGothic", "font_size_title": 24, "font_size_subtitle": 16,
                       "font_size_body": 12, "letter_spacing": 0, "line_height": 180, "char_width": 100,
-                      "margin_top": 25, "margin_bottom": 25, "margin_left": 25, "margin_right": 25}.items()}
+                      "margin_top": 25, "margin_bottom": 25, "margin_left": 25, "margin_right": 25,
+                      "target_pages": 30}.items()}
+    
+    # ========== 챕터당 글자 수 계산 ==========
+    target_pages = service.get('target_pages', 30)
+    chars_per_page = calculate_chars_per_page(
+        font_settings['font_size_body'],
+        font_settings['line_height'],
+        font_settings['margin_top'],
+        font_settings['margin_bottom'],
+        font_settings['margin_left'],
+        font_settings['margin_right']
+    )
+    
+    total_chapters = len(chapters)
+    if total_chapters > 0:
+        total_chars = target_pages * chars_per_page
+        chars_per_chapter = total_chars // total_chapters
+    else:
+        chars_per_chapter = 500
     
     # 점수 생성 (차트용)
     scores = generate_scores_with_gpt(api_key, customer_data, service_type)
     
     chapters_content = []
-    total_chapters = len(chapters)
     
     for i, ch in enumerate(chapters):
-        content = generate_content_with_gpt(api_key, ch['title'], guideline_text, customer_data)
+        content = generate_content_with_gpt(api_key, ch['title'], guideline_text, customer_data, chars_per_chapter)
         chapters_content.append({"title": ch['title'], "content": content})
         
         if progress_callback and customer_idx is not None:
@@ -994,23 +1072,43 @@ def generate_pdf_with_progress(customer_data: dict, service: dict, api_key: str,
     font_settings = {k: service.get(k, v) for k, v in 
                      {"font_family": "NanumGothic", "font_size_title": 24, "font_size_subtitle": 16,
                       "font_size_body": 12, "letter_spacing": 0, "line_height": 180, "char_width": 100,
-                      "margin_top": 25, "margin_bottom": 25, "margin_left": 25, "margin_right": 25}.items()}
+                      "margin_top": 25, "margin_bottom": 25, "margin_left": 25, "margin_right": 25,
+                      "target_pages": 30}.items()}
+    
+    # ========== 챕터당 글자 수 계산 ==========
+    target_pages = service.get('target_pages', 30)
+    chars_per_page = calculate_chars_per_page(
+        font_settings['font_size_body'],
+        font_settings['line_height'],
+        font_settings['margin_top'],
+        font_settings['margin_bottom'],
+        font_settings['margin_left'],
+        font_settings['margin_right']
+    )
+    
+    total_chapters = len(chapters)
+    if total_chapters > 0:
+        # 총 글자 수 / 챕터 수 = 챕터당 글자 수
+        total_chars = target_pages * chars_per_page
+        chars_per_chapter = total_chars // total_chapters
+    else:
+        chars_per_chapter = 500  # 기본값
     
     # 초기 진행률 0%
     progress_bar.progress(0.0, text="0%")
-    detail_text.caption("📊 운세 점수 분석 중...")
+    detail_text.caption(f"📊 운세 점수 분석 중... (목표: {target_pages}페이지, 챕터당 {chars_per_chapter:,}자)")
     
     # 점수 생성 (차트용)
     scores = generate_scores_with_gpt(api_key, customer_data, service_type)
     progress_bar.progress(0.1, text="10%")
     
     chapters_content = []
-    total_chapters = len(chapters)
     
     for i, ch in enumerate(chapters):
-        detail_text.caption(f"📝 {ch['title']} 작성 중...")
+        detail_text.caption(f"📝 {ch['title']} 작성 중... ({chars_per_chapter:,}자)")
         
-        content = generate_content_with_gpt(api_key, ch['title'], guideline_text, customer_data)
+        # 글자 수 전달하여 GPT 호출
+        content = generate_content_with_gpt(api_key, ch['title'], guideline_text, customer_data, chars_per_chapter)
         chapters_content.append({"title": ch['title'], "content": content})
         
         # 진행률 실시간 업데이트 (10% ~ 95%)
@@ -1282,7 +1380,8 @@ def show_service_edit_form(svc: dict, prefix: str):
     font_defaults = {k: svc.get(k, v) for k, v in 
                      {"font_family": "NanumGothic", "font_size_title": 24, "font_size_subtitle": 16,
                       "font_size_body": 12, "letter_spacing": 0, "line_height": 180, "char_width": 100,
-                      "margin_top": 25, "margin_bottom": 25, "margin_left": 25, "margin_right": 25}.items()}
+                      "margin_top": 25, "margin_bottom": 25, "margin_left": 25, "margin_right": 25,
+                      "target_pages": 30}.items()}
     font_settings = render_font_settings(f"{prefix}_{svc_id}", font_defaults)
     
     st.markdown("**🖼️ 디자인**")

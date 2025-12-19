@@ -126,6 +126,9 @@ class Service(Base):
     margin_left = Column(Integer, default=25)
     margin_right = Column(Integer, default=25)
     
+    # 목표 페이지 수
+    target_pages = Column(Integer, default=30)
+    
     # 관계
     owner = relationship("User", back_populates="services")
     chapters = relationship("Chapter", back_populates="service", cascade="all, delete-orphan")
