@@ -489,7 +489,7 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
         page_width, page_height = A4
         temp_chart_files = []
         
-        # 한글 폰트 등록
+        # 한글 폰트 등록 (한자 지원 포함)
         font_name = 'Helvetica'
         try:
             font_paths = {
@@ -497,17 +497,45 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
                 'NanumMyeongjo': '/usr/share/fonts/truetype/nanum/NanumMyeongjo.ttf',
                 'NanumBarunGothic': '/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf',
             }
+            
+            # 한자 지원 폰트 경로 (우선순위)
+            cjk_font_paths = [
+                '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+                '/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc',
+                '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
+                '/usr/share/fonts/truetype/unfonts-core/UnBatang.ttf',
+                '/usr/share/fonts/truetype/unfonts-core/UnDotum.ttf',
+            ]
+            
             selected_font = font_settings.get('font_family', 'NanumGothic')
-            font_path = font_paths.get(selected_font)
-            if font_path and os.path.exists(font_path):
-                pdfmetrics.registerFont(TTFont('KoreanFont', font_path))
-                font_name = 'KoreanFont'
-            else:
-                for fp in font_paths.values():
-                    if os.path.exists(fp):
-                        pdfmetrics.registerFont(TTFont('KoreanFont', fp))
+            
+            # 먼저 한자 지원 폰트 시도
+            font_registered = False
+            for cjk_path in cjk_font_paths:
+                if os.path.exists(cjk_path):
+                    try:
+                        if cjk_path.endswith('.ttc'):
+                            pdfmetrics.registerFont(TTFont('KoreanFont', cjk_path, subfontIndex=0))
+                        else:
+                            pdfmetrics.registerFont(TTFont('KoreanFont', cjk_path))
                         font_name = 'KoreanFont'
+                        font_registered = True
                         break
+                    except:
+                        continue
+            
+            # 한자 폰트 없으면 기존 나눔폰트 사용
+            if not font_registered:
+                font_path = font_paths.get(selected_font)
+                if font_path and os.path.exists(font_path):
+                    pdfmetrics.registerFont(TTFont('KoreanFont', font_path))
+                    font_name = 'KoreanFont'
+                else:
+                    for fp in font_paths.values():
+                        if os.path.exists(fp):
+                            pdfmetrics.registerFont(TTFont('KoreanFont', fp))
+                            font_name = 'KoreanFont'
+                            break
         except:
             pass
         
@@ -544,6 +572,9 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
         c.showPage()
         
         # ========== 2. 목차 페이지 ==========
+        # 목표 페이지 수 가져오기
+        target_pages = font_settings.get('target_pages', 30)
+        
         # 목차가 많으면 여러 페이지에 걸쳐 표시
         toc_page_num = 2
         items_per_page = 18  # 페이지당 목차 항목 수
@@ -576,10 +607,6 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
             # 목차 항목들
             c.setFont(font_name, body_size + 2)
             
-            # 차트 페이지 번호 계산
-            chart_pages = 2 if (scores and charts_available) else 0
-            start_page = 2 + total_toc_pages + chart_pages  # 표지(1) + 목차페이지들 + 차트페이지들
-            
             # 이 페이지에 표시할 항목 범위
             start_idx = toc_page * items_per_page
             end_idx = min(start_idx + items_per_page, len(chapters_content))
@@ -587,25 +614,10 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
             for idx in range(start_idx, end_idx):
                 chapter = chapters_content[idx]
                 chapter_title = chapter['title']
-                page_num = start_page + idx
                 
-                # 제목 (번호 없이 원본 그대로)
+                # 제목만 표시 (페이지 번호 없음)
                 c.setFillColor(HexColor('#374151'))
                 c.drawString(margin_left + 40, y_pos, chapter_title)
-                
-                # 점선
-                dots_start = margin_left + 50 + c.stringWidth(chapter_title, font_name, body_size + 2)
-                dots_end = page_width - margin_right - 60
-                if dots_end > dots_start + 20:
-                    c.setFillColor(HexColor('#D1D5DB'))
-                    dot_x = dots_start + 10
-                    while dot_x < dots_end:
-                        c.drawString(dot_x, y_pos, "·")
-                        dot_x += 8
-                
-                # 페이지 번호
-                c.setFillColor(HexColor('#6366F1'))
-                c.drawRightString(page_width - margin_right - 40, y_pos, str(page_num))
                 
                 y_pos -= 35
             
@@ -1791,14 +1803,16 @@ def show_service_work():
             st.markdown("---")
             
             # 전체 선택 + 초기화
-            col_ctrl1, col_ctrl2 = st.columns([1, 1])
+            col_ctrl1, col_ctrl2, col_ctrl3 = st.columns([1, 1, 1])
             with col_ctrl1:
-                if st.checkbox("전체 선택", value=len(st.session_state.selected_customers) == len(df)):
+                if st.button("✅ 전체 선택", use_container_width=True):
                     st.session_state.selected_customers = set(range(len(df)))
-                else:
-                    if len(st.session_state.selected_customers) == len(df):
-                        st.session_state.selected_customers = set()
+                    st.rerun()
             with col_ctrl2:
+                if st.button("⬜ 전체 해제", use_container_width=True):
+                    st.session_state.selected_customers = set()
+                    st.rerun()
+            with col_ctrl3:
                 if st.button("🔄 초기화", use_container_width=True):
                     # 모든 엑셀 관련 세션 완전 삭제
                     st.session_state.customers_df = None
