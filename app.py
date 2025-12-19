@@ -333,17 +333,25 @@ def generate_content_with_gpt(api_key: str, chapter_title: str, guideline: str,
 
 위 정보를 바탕으로 '{chapter_title}' 챕터 내용을 작성해주세요.
 
-⭐ 중요사항:
-- 반드시 {chars_per_chapter}자 내외로 작성 (허용 오차: ±10%)
+🚨🚨🚨 최우선 규칙 - 글자수 🚨🚨🚨
+- 목표 글자수: 정확히 {chars_per_chapter}자
+- 최소 글자수: {int(chars_per_chapter * 0.9)}자 (이보다 적으면 안됨!)
+- 최대 글자수: {int(chars_per_chapter * 1.1)}자
+- 글자수가 부족하면 세부 내용, 예시, 조언을 더 추가하세요
+
+📝 작성 규칙:
 - 챕터 제목 '{chapter_title}'에 정확히 맞는 내용만 작성
 - 다른 챕터 내용과 중복되지 않게 작성
 - 고객 정보를 반영하여 개인화된 내용
 - 긍정적이고 희망적인 톤
 - 마크다운 없이 순수 텍스트
-- 문단 나누어 가독성 높게 작성"""
+- 문단 나누어 가독성 높게 작성
+- 내용이 풍부하고 구체적으로 작성
+
+다시 한번 강조: 반드시 {chars_per_chapter}자 이상 작성하세요!"""
         
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo", messages=[{"role": "user", "content": prompt}],
+            model="gpt-4o", messages=[{"role": "user", "content": prompt}],
             max_tokens=max_tokens, temperature=0.7
         )
         return response.choices[0].message.content.strip()
@@ -411,7 +419,7 @@ def generate_scores_with_gpt(api_key: str, customer_data: dict, service_type: st
 }}"""
         
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo", messages=[{"role": "user", "content": prompt}],
+            model="gpt-4o", messages=[{"role": "user", "content": prompt}],
             max_tokens=500, temperature=0.7
         )
         
