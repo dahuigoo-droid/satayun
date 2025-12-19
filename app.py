@@ -9,8 +9,10 @@ import pandas as pd
 import os
 import time
 import random
+import hashlib
 from datetime import datetime
 from io import BytesIO
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 st.set_page_config(page_title="PDF 자동 생성 플랫폼", page_icon="🔮", layout="wide")
 
@@ -42,32 +44,32 @@ from notices import get_all_notices, create_notice, update_notice, delete_notice
 # 캐싱 함수 (속도 최적화)
 # ============================================
 
-@st.cache_data(ttl=30)  # 30초 캐싱
+@st.cache_data(ttl=300)  # 5분 캐싱 (성능 최적화)
 def cached_get_admin_services():
     """기성상품 목록 캐싱"""
     return get_admin_services()
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=300)
 def cached_get_user_services(user_id: int):
     """개별상품 목록 캐싱"""
     return get_user_services(user_id)
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=300)
 def cached_get_chapters(service_id: int):
     """목차 캐싱"""
     return get_chapters_by_service(service_id)
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=300)
 def cached_get_guidelines(service_id: int):
     """지침 캐싱"""
     return get_guidelines_by_service(service_id)
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=300)
 def cached_get_templates(service_id: int):
     """템플릿 캐싱"""
     return get_templates_by_service(service_id)
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300)
 def cached_get_notices():
     """공지사항 캐싱"""
     return get_all_notices()
@@ -125,10 +127,64 @@ defaults = {
     'logged_in': False, 'user': None, 'customers_df': None,
     'completed_customers': {}, 'generated_pdfs': {}, 'selected_customers': set(),
     'input_mode': 'excel', 'manual_completed': False, 'manual_pdf': None,
+    'pdf_hashes': {},  # 멱등성: 생성된 PDF 해시 저장
 }
 for key, val in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = val
+
+# ============================================
+# 폰트 전역 캐싱 (한 번만 등록)
+# ============================================
+
+@st.cache_resource
+def get_registered_font():
+    """폰트를 한 번만 등록하고 캐싱"""
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    
+    font_name = 'Helvetica'
+    
+    # 한자 지원 폰트 경로 (우선순위)
+    cjk_font_paths = [
+        '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+        '/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc',
+        '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
+        '/usr/share/fonts/truetype/unfonts-core/UnBatang.ttf',
+        '/usr/share/fonts/truetype/unfonts-core/UnDotum.ttf',
+    ]
+    
+    nanum_paths = {
+        'NanumGothic': '/usr/share/fonts/truetype/nanum/NanumGothic.ttf',
+        'NanumMyeongjo': '/usr/share/fonts/truetype/nanum/NanumMyeongjo.ttf',
+        'NanumBarunGothic': '/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf',
+    }
+    
+    try:
+        # 먼저 한자 지원 폰트 시도
+        for cjk_path in cjk_font_paths:
+            if os.path.exists(cjk_path):
+                try:
+                    if cjk_path.endswith('.ttc'):
+                        pdfmetrics.registerFont(TTFont('KoreanFont', cjk_path, subfontIndex=0))
+                    else:
+                        pdfmetrics.registerFont(TTFont('KoreanFont', cjk_path))
+                    return 'KoreanFont'
+                except:
+                    continue
+        
+        # 한자 폰트 없으면 나눔폰트 사용
+        for fp in nanum_paths.values():
+            if os.path.exists(fp):
+                pdfmetrics.registerFont(TTFont('KoreanFont', fp))
+                return 'KoreanFont'
+    except:
+        pass
+    
+    return font_name
+
+# 앱 시작 시 폰트 한 번 등록
+CACHED_FONT_NAME = get_registered_font()
 
 # ============================================
 # DB 초기화
@@ -363,6 +419,56 @@ def generate_content_with_gpt(api_key: str, chapter_title: str, guideline: str,
         return f"[내용 생성 오류: {str(e)}]"
 
 
+def generate_order_hash(customer_data: dict, service_id: int) -> str:
+    """주문 고유 해시 생성 (멱등성 체크용)"""
+    hash_input = f"{service_id}:{str(sorted(customer_data.items()))}"
+    return hashlib.md5(hash_input.encode()).hexdigest()
+
+
+def is_already_generated(order_hash: str) -> bool:
+    """이미 생성된 주문인지 확인"""
+    return order_hash in st.session_state.get('pdf_hashes', {})
+
+
+def mark_as_generated(order_hash: str, pdf_bytes: bytes):
+    """생성 완료 표시"""
+    if 'pdf_hashes' not in st.session_state:
+        st.session_state.pdf_hashes = {}
+    st.session_state.pdf_hashes[order_hash] = pdf_bytes
+
+
+def generate_chapters_parallel(api_key: str, chapters: list, guideline_text: str, 
+                                customer_data: dict, chars_per_chapter: int,
+                                progress_callback=None) -> list:
+    """GPT 챕터 내용 병렬 생성 (최대 3배 빠름)"""
+    all_chapter_titles = [ch['title'] for ch in chapters]
+    results = [None] * len(chapters)
+    
+    def generate_single(args):
+        idx, ch = args
+        content = generate_content_with_gpt(
+            api_key, ch['title'], guideline_text, customer_data,
+            chars_per_chapter, all_chapter_titles, idx
+        )
+        return idx, {"title": ch['title'], "content": content}
+    
+    # 병렬 실행 (최대 4개 동시)
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {executor.submit(generate_single, (i, ch)): i 
+                   for i, ch in enumerate(chapters)}
+        
+        completed = 0
+        for future in as_completed(futures):
+            idx, result = future.result()
+            results[idx] = result
+            completed += 1
+            
+            if progress_callback:
+                progress_callback(completed, len(chapters))
+    
+    return results
+
+
 def generate_scores_with_gpt(api_key: str, customer_data: dict, service_type: str = "single") -> dict:
     """GPT로 운세/궁합 점수 생성"""
     try:
@@ -489,55 +595,8 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
         page_width, page_height = A4
         temp_chart_files = []
         
-        # 한글 폰트 등록 (한자 지원 포함)
-        font_name = 'Helvetica'
-        try:
-            font_paths = {
-                'NanumGothic': '/usr/share/fonts/truetype/nanum/NanumGothic.ttf',
-                'NanumMyeongjo': '/usr/share/fonts/truetype/nanum/NanumMyeongjo.ttf',
-                'NanumBarunGothic': '/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf',
-            }
-            
-            # 한자 지원 폰트 경로 (우선순위)
-            cjk_font_paths = [
-                '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-                '/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc',
-                '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
-                '/usr/share/fonts/truetype/unfonts-core/UnBatang.ttf',
-                '/usr/share/fonts/truetype/unfonts-core/UnDotum.ttf',
-            ]
-            
-            selected_font = font_settings.get('font_family', 'NanumGothic')
-            
-            # 먼저 한자 지원 폰트 시도
-            font_registered = False
-            for cjk_path in cjk_font_paths:
-                if os.path.exists(cjk_path):
-                    try:
-                        if cjk_path.endswith('.ttc'):
-                            pdfmetrics.registerFont(TTFont('KoreanFont', cjk_path, subfontIndex=0))
-                        else:
-                            pdfmetrics.registerFont(TTFont('KoreanFont', cjk_path))
-                        font_name = 'KoreanFont'
-                        font_registered = True
-                        break
-                    except:
-                        continue
-            
-            # 한자 폰트 없으면 기존 나눔폰트 사용
-            if not font_registered:
-                font_path = font_paths.get(selected_font)
-                if font_path and os.path.exists(font_path):
-                    pdfmetrics.registerFont(TTFont('KoreanFont', font_path))
-                    font_name = 'KoreanFont'
-                else:
-                    for fp in font_paths.values():
-                        if os.path.exists(fp):
-                            pdfmetrics.registerFont(TTFont('KoreanFont', fp))
-                            font_name = 'KoreanFont'
-                            break
-        except:
-            pass
+        # 캐싱된 폰트 사용 (성능 최적화)
+        font_name = CACHED_FONT_NAME
         
         # 폰트 설정
         title_size = font_settings.get('font_size_title', 24)
@@ -1161,25 +1220,20 @@ def generate_pdf_with_progress(customer_data: dict, service: dict, api_key: str,
     scores = generate_scores_with_gpt(api_key, customer_data, service_type)
     progress_bar.progress(0.1, text="10%")
     
-    chapters_content = []
+    # ========== GPT 병렬 호출 (속도 3배 향상) ==========
+    detail_text.caption(f"📝 {total_chapters}개 챕터 동시 작성 중... (병렬 처리)")
     
-    # 전체 목차 제목 리스트 (GPT에게 맥락 제공용)
-    all_chapter_titles = [ch['title'] for ch in chapters]
-    
-    for i, ch in enumerate(chapters):
-        detail_text.caption(f"📝 {ch['title']} 작성 중... ({chars_per_chapter:,}자)")
-        
-        # 글자 수 + 전체 목차 + 현재 인덱스 전달하여 GPT 호출
-        content = generate_content_with_gpt(
-            api_key, ch['title'], guideline_text, customer_data, 
-            chars_per_chapter, all_chapter_titles, i
-        )
-        chapters_content.append({"title": ch['title'], "content": content})
-        
-        # 진행률 실시간 업데이트 (10% ~ 95%)
-        progress = 0.1 + (i + 1) / total_chapters * 0.85
+    def update_progress(completed, total):
+        """병렬 처리 진행률 콜백"""
+        progress = 0.1 + (completed / total) * 0.85
         progress_bar.progress(progress, text=f"{int(progress * 100)}%")
-        time.sleep(0.1)
+        detail_text.caption(f"📝 {completed}/{total} 챕터 완료...")
+    
+    # 병렬로 모든 챕터 동시 생성
+    chapters_content = generate_chapters_parallel(
+        api_key, chapters, guideline_text, customer_data,
+        chars_per_chapter, progress_callback=update_progress
+    )
     
     detail_text.caption("📄 PDF 생성 중...")
     
@@ -1912,6 +1966,16 @@ def show_service_work():
                             cover_name = f"{display_name}님"
                             current_svc_type = "single"
                         
+                        # 멱등성 체크: 동일 주문 재실행 방지
+                        order_hash = generate_order_hash(row.to_dict(), selected_service['id'])
+                        if is_already_generated(order_hash):
+                            cached_pdf = st.session_state.pdf_hashes.get(order_hash)
+                            if cached_pdf:
+                                st.session_state.completed_customers[idx] = True
+                                st.session_state.generated_pdfs[idx] = cached_pdf
+                                st.toast(f"⚡ {display_name} 캐시에서 불러옴!")
+                                continue
+                        
                         status_area.markdown(f"### 📝 {display_name} 생성 중... ({i+1}/{len(pending_selected)})")
                         
                         # 서비스에 현재 유형 임시 설정
@@ -1927,6 +1991,7 @@ def show_service_work():
                         if pdf_bytes:
                             st.session_state.completed_customers[idx] = True
                             st.session_state.generated_pdfs[idx] = pdf_bytes
+                            mark_as_generated(order_hash, pdf_bytes)  # 캐시에 저장
                             st.toast(f"🔔 {display_name} 완료!")
                         
                         current_progress_bar.progress(1.0, text="100% 완료")

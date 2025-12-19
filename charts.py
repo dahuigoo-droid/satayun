@@ -7,6 +7,7 @@ PDF용 차트 및 시각화 모듈
 import os
 import io
 import tempfile
+import functools
 from typing import Dict, List, Tuple, Optional
 
 # matplotlib 설정
@@ -16,9 +17,15 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import numpy as np
 
-# 한글 폰트 설정
+# 한글 폰트 설정 (한 번만 실행)
+_font_initialized = False
+
 def setup_korean_font():
-    """한글 폰트 설정"""
+    """한글 폰트 설정 (캐싱됨)"""
+    global _font_initialized
+    if _font_initialized:
+        return
+    
     font_paths = [
         '/usr/share/fonts/truetype/nanum/NanumGothic.ttf',
         '/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf',
@@ -29,6 +36,7 @@ def setup_korean_font():
             plt.rcParams['font.family'] = fm.FontProperties(fname=fp).get_name()
             break
     plt.rcParams['axes.unicode_minus'] = False
+    _font_initialized = True
 
 setup_korean_font()
 
