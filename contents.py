@@ -79,6 +79,54 @@ def add_chapter(service_id: int, title: str, description: str = "", order: int =
         db.close()
 
 
+def add_chapters_bulk(service_id: int, chapters: list) -> dict:
+    """여러 목차를 한 번에 추가 (배치 처리)
+    
+    Args:
+        service_id: 서비스 ID
+        chapters: [{"title": "제목1"}, {"title": "제목2"}, ...] 또는 ["제목1", "제목2", ...]
+    """
+    if not SessionLocal:
+        return {"success": False, "error": "데이터베이스 연결 실패"}
+    
+    if not chapters:
+        return {"success": True, "message": "추가할 목차가 없습니다.", "count": 0}
+    
+    db = SessionLocal()
+    try:
+        new_chapters = []
+        for idx, ch in enumerate(chapters):
+            # 문자열 또는 딕셔너리 지원
+            if isinstance(ch, str):
+                title = ch.strip()
+                description = ""
+            else:
+                title = ch.get("title", "").strip()
+                description = ch.get("description", "").strip()
+            
+            if title:  # 빈 제목 무시
+                new_chapter = Chapter(
+                    service_id=service_id,
+                    title=title,
+                    description=description,
+                    order=idx + 1,
+                    is_active=True
+                )
+                new_chapters.append(new_chapter)
+        
+        # 한 번에 모두 추가
+        db.add_all(new_chapters)
+        db.commit()
+        
+        return {"success": True, "message": f"{len(new_chapters)}개 목차가 추가되었습니다.", "count": len(new_chapters)}
+    
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": f"목차 배치 추가 실패: {str(e)}"}
+    finally:
+        db.close()
+
+
 def update_chapter(chapter_id: int, title: str = None, description: str = None, order: int = None) -> dict:
     """목차 수정"""
     if not SessionLocal:
@@ -126,6 +174,30 @@ def delete_chapter(chapter_id: int) -> dict:
     except Exception as e:
         db.rollback()
         return {"success": False, "error": f"목차 삭제 실패: {str(e)}"}
+    finally:
+        db.close()
+
+
+def delete_chapters_by_service(service_id: int) -> dict:
+    """서비스의 모든 목차 삭제 (배치 처리)"""
+    if not SessionLocal:
+        return {"success": False, "error": "데이터베이스 연결 실패"}
+    
+    db = SessionLocal()
+    try:
+        # 해당 서비스의 모든 활성 목차 비활성화
+        result = db.query(Chapter).filter(
+            Chapter.service_id == service_id,
+            Chapter.is_active == True
+        ).update({"is_active": False})
+        
+        db.commit()
+        
+        return {"success": True, "message": f"{result}개 목차가 삭제되었습니다.", "count": result}
+    
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": f"목차 배치 삭제 실패: {str(e)}"}
     finally:
         db.close()
 

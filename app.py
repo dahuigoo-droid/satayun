@@ -32,7 +32,7 @@ from services import (
     get_guideline_library, add_guideline_library, update_guideline_library, delete_guideline_library
 )
 from contents import (
-    get_chapters_by_service, add_chapter, update_chapter, delete_chapter,
+    get_chapters_by_service, add_chapter, add_chapters_bulk, update_chapter, delete_chapter, delete_chapters_by_service,
     get_guidelines_by_service, add_guideline, update_guideline, delete_guideline,
     get_templates_by_service, add_template, delete_template
 )
@@ -511,73 +511,77 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
         c.showPage()
         
         # ========== 2. 목차 페이지 ==========
-        if bg_path and os.path.exists(bg_path):
-            try:
-                c.drawImage(bg_path, 0, 0, width=page_width, height=page_height)
-            except:
-                pass
+        # 목차가 많으면 여러 페이지에 걸쳐 표시
+        toc_page_num = 2
+        items_per_page = 18  # 페이지당 목차 항목 수
+        total_toc_pages = (len(chapters_content) + items_per_page - 1) // items_per_page
         
-        y_pos = page_height - margin_top
-        
-        # 목차 제목
-        c.setFont(font_name, subtitle_size + 4)
-        c.setFillColor(HexColor('#1F2937'))
-        c.drawCentredString(page_width/2, y_pos, "📋 목 차")
-        
-        y_pos -= 50
-        
-        # 구분선
-        c.setStrokeColor(HexColor('#E5E7EB'))
-        c.setLineWidth(1)
-        c.line(margin_left + 30, y_pos, page_width - margin_right - 30, y_pos)
-        
-        y_pos -= 40
-        
-        # 목차 항목들
-        c.setFont(font_name, body_size + 2)
-        c.setFillColor(HexColor('#374151'))
-        
-        # 차트 페이지 번호 계산
-        chart_pages = 2 if (scores and charts_available) else 0
-        start_page = 3 + chart_pages  # 표지(1) + 목차(2) + 차트페이지들
-        
-        for idx, chapter in enumerate(chapters_content):
-            chapter_num = idx + 1
-            chapter_title = chapter['title']
-            page_num = start_page + idx
+        for toc_page in range(total_toc_pages):
+            if bg_path and os.path.exists(bg_path):
+                try:
+                    c.drawImage(bg_path, 0, 0, width=page_width, height=page_height)
+                except:
+                    pass
             
-            # 번호와 제목
-            c.setFillColor(HexColor('#6366F1'))
-            c.drawString(margin_left + 40, y_pos, f"{chapter_num}.")
+            y_pos = page_height - margin_top
             
-            c.setFillColor(HexColor('#374151'))
-            c.drawString(margin_left + 70, y_pos, chapter_title)
+            # 목차 제목 (첫 페이지만)
+            if toc_page == 0:
+                c.setFont(font_name, subtitle_size + 4)
+                c.setFillColor(HexColor('#1F2937'))
+                c.drawCentredString(page_width/2, y_pos, "📋 목 차")
+                y_pos -= 50
+                
+                # 구분선
+                c.setStrokeColor(HexColor('#E5E7EB'))
+                c.setLineWidth(1)
+                c.line(margin_left + 30, y_pos, page_width - margin_right - 30, y_pos)
+                y_pos -= 40
+            else:
+                y_pos -= 30
             
-            # 점선
-            dots_start = margin_left + 80 + c.stringWidth(chapter_title, font_name, body_size + 2)
-            dots_end = page_width - margin_right - 60
-            if dots_end > dots_start + 20:
-                c.setFillColor(HexColor('#D1D5DB'))
-                dot_x = dots_start + 10
-                while dot_x < dots_end:
-                    c.drawString(dot_x, y_pos, "·")
-                    dot_x += 8
+            # 목차 항목들
+            c.setFont(font_name, body_size + 2)
             
-            # 페이지 번호
-            c.setFillColor(HexColor('#6366F1'))
-            c.drawRightString(page_width - margin_right - 40, y_pos, str(page_num))
+            # 차트 페이지 번호 계산
+            chart_pages = 2 if (scores and charts_available) else 0
+            start_page = 2 + total_toc_pages + chart_pages  # 표지(1) + 목차페이지들 + 차트페이지들
             
-            y_pos -= 35
+            # 이 페이지에 표시할 항목 범위
+            start_idx = toc_page * items_per_page
+            end_idx = min(start_idx + items_per_page, len(chapters_content))
             
-            # 페이지 넘침 방지
-            if y_pos < margin_bottom + 50:
-                break
-        
-        # 목차 페이지 번호
-        c.setFont(font_name, 10)
-        c.setFillColor(HexColor('#9CA3AF'))
-        c.drawCentredString(page_width/2, 15*mm, "- 2 -")
-        c.showPage()
+            for idx in range(start_idx, end_idx):
+                chapter = chapters_content[idx]
+                chapter_title = chapter['title']
+                page_num = start_page + idx
+                
+                # 제목 (번호 없이 원본 그대로)
+                c.setFillColor(HexColor('#374151'))
+                c.drawString(margin_left + 40, y_pos, chapter_title)
+                
+                # 점선
+                dots_start = margin_left + 50 + c.stringWidth(chapter_title, font_name, body_size + 2)
+                dots_end = page_width - margin_right - 60
+                if dots_end > dots_start + 20:
+                    c.setFillColor(HexColor('#D1D5DB'))
+                    dot_x = dots_start + 10
+                    while dot_x < dots_end:
+                        c.drawString(dot_x, y_pos, "·")
+                        dot_x += 8
+                
+                # 페이지 번호
+                c.setFillColor(HexColor('#6366F1'))
+                c.drawRightString(page_width - margin_right - 40, y_pos, str(page_num))
+                
+                y_pos -= 35
+            
+            # 목차 페이지 번호
+            c.setFont(font_name, 10)
+            c.setFillColor(HexColor('#9CA3AF'))
+            c.drawCentredString(page_width/2, 15*mm, f"- {toc_page_num} -")
+            c.showPage()
+            toc_page_num += 1
         
         # ========== 3. 운세 요약 페이지 (차트) ==========
         if scores and charts_available:
@@ -666,7 +670,8 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
                 y_pos -= 25
             
             c.setFont(font_name, 10)
-            c.drawCentredString(page_width/2, 15*mm, "- 3 -")
+            chart_page_1 = 1 + total_toc_pages + 1  # 표지 + 목차페이지들 + 1
+            c.drawCentredString(page_width/2, 15*mm, f"- {chart_page_1} -")
             c.showPage()
             
             # ========== 3. 상세 차트 페이지 ==========
@@ -758,11 +763,14 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
                            width=70*mm, height=70*mm)
             
             c.setFont(font_name, 10)
-            c.drawCentredString(page_width/2, 15*mm, "- 4 -")
+            chart_page_2 = 1 + total_toc_pages + 2  # 표지 + 목차페이지들 + 2
+            c.drawCentredString(page_width/2, 15*mm, f"- {chart_page_2} -")
             c.showPage()
         
         # ========== 4. 본문 ==========
-        page_num = 5 if (scores and charts_available) else 3
+        # 본문 시작 페이지: 표지(1) + 목차(total_toc_pages) + 차트(2 or 0)
+        chart_pages = 2 if (scores and charts_available) else 0
+        page_num = 1 + total_toc_pages + chart_pages + 1
         
         for idx, chapter in enumerate(chapters_content):
             if bg_path and os.path.exists(bg_path):
@@ -1331,9 +1339,9 @@ def show_admin_settings():
                     if result.get("success"):
                         svc_id = result["id"]
                         if new_chapters:
-                            for idx, ch in enumerate(new_chapters.strip().split("\n")):
-                                if ch.strip():
-                                    add_chapter(svc_id, ch.strip(), "", idx+1)
+                            # 배치 처리로 한 번에 추가 (속도 개선)
+                            chapter_list = [ch.strip() for ch in new_chapters.strip().split("\n") if ch.strip()]
+                            add_chapters_bulk(svc_id, chapter_list)
                         if new_guideline:
                             add_guideline(svc_id, f"{product_name} 지침", new_guideline)
                         if cover:
@@ -1399,15 +1407,12 @@ def show_service_edit_form(svc: dict, prefix: str):
             # 캐시 먼저 초기화 (중복 방지)
             clear_service_cache()
             
-            # 실시간 DB에서 목차 조회 후 삭제
-            fresh_chapters = get_chapters_by_service(svc_id)
-            for ch in fresh_chapters:
-                delete_chapter(ch['id'])
+            # 기존 목차 배치 삭제
+            delete_chapters_by_service(svc_id)
             
-            # 새 목차 추가
-            for idx, ch in enumerate(edit_chapters.strip().split("\n")):
-                if ch.strip():
-                    add_chapter(svc_id, ch.strip(), "", idx+1)
+            # 새 목차 배치 추가
+            chapter_list = [ch.strip() for ch in edit_chapters.strip().split("\n") if ch.strip()]
+            add_chapters_bulk(svc_id, chapter_list)
             
             # 서비스 업데이트
             update_service(svc_id, name=edit_name, **font_settings)
@@ -1632,9 +1637,9 @@ def show_service_work():
                         result = add_service(my_name, "", user['id'], **font_settings)
                         if result.get("success"):
                             svc_id = result["id"]
-                            for idx, ch in enumerate(my_chapters.strip().split("\n")):
-                                if ch.strip():
-                                    add_chapter(svc_id, ch.strip(), "", idx+1)
+                            # 배치 처리로 한 번에 추가
+                            chapter_list = [ch.strip() for ch in my_chapters.strip().split("\n") if ch.strip()]
+                            add_chapters_bulk(svc_id, chapter_list)
                             if my_guide:
                                 add_guideline(svc_id, f"{my_name} 지침", my_guide)
                             if my_cover:
