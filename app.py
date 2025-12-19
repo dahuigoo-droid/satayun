@@ -1310,7 +1310,16 @@ def show_admin_settings():
     with tab3:
         st.markdown('<span class="section-title">📦 기성상품 등록</span>', unsafe_allow_html=True)
         
-        with st.expander("➕ 새 기성상품 등록", expanded=False):
+        # 새 상품 등록 토글
+        if 'show_new_product' not in st.session_state:
+            st.session_state.show_new_product = False
+        
+        if st.button("➕ 새 기성상품 등록" if not st.session_state.show_new_product else "➖ 접기"):
+            st.session_state.show_new_product = not st.session_state.show_new_product
+            st.rerun()
+        
+        if st.session_state.show_new_product:
+            st.markdown("---")
             product_name = st.text_input("상품명", key="new_prod")
             
             # 목차/지침 좌우 배치
@@ -1351,8 +1360,10 @@ def show_admin_settings():
                         if info:
                             add_template(svc_id, "info", "안내지", save_uploaded_file(info, f"{product_name}_info"))
                         st.success(f"'{product_name}' 등록됨!")
+                        st.session_state.show_new_product = False
                         clear_service_cache()
                         st.rerun()
+            st.markdown("---")
         
         st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
         st.markdown("**등록된 기성상품**")
