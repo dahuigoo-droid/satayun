@@ -282,13 +282,13 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
                 c.drawImage(cover_path, 0, 0, width=page_width, height=page_height)
                 # 표지 하단에 고객 이름 표시
                 c.setFont(font_name, title_size)
-                c.drawCentredString(page_width/2, 80, f"{customer_name}의 운세")
+                c.drawCentredString(page_width/2, 80, customer_name)
             except:
                 c.setFont(font_name, title_size)
-                c.drawCentredString(page_width/2, page_height/2, f"{customer_name}의 운세")
+                c.drawCentredString(page_width/2, page_height/2, customer_name)
         else:
             c.setFont(font_name, title_size)
-            c.drawCentredString(page_width/2, page_height/2, f"{customer_name}의 운세")
+            c.drawCentredString(page_width/2, page_height/2, customer_name)
         c.showPage()
         
         # 2. 본문
