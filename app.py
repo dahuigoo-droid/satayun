@@ -292,6 +292,8 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
         c.showPage()
         
         # 2. 본문
+        page_num = 2  # 표지가 1페이지이므로 본문은 2페이지부터
+        
         for idx, chapter in enumerate(chapters_content):
             # 내지 배경 이미지 그리기
             if bg_path and os.path.exists(bg_path):
@@ -323,10 +325,12 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
                     else:
                         if current_line:
                             if y_pos < margin_bottom + 30:
+                                # 현재 페이지 마무리
                                 c.setFont(font_name, 10)
-                                c.drawCentredString(page_width/2, 15*mm, f"- {idx + 2} -")
+                                c.drawCentredString(page_width/2, 15*mm, f"- {page_num} -")
                                 c.showPage()
-                                # 새 페이지에도 내지 배경 적용
+                                page_num += 1
+                                # 새 페이지에 내지 배경 적용
                                 if bg_path and os.path.exists(bg_path):
                                     try:
                                         c.drawImage(bg_path, 0, 0, width=page_width, height=page_height)
@@ -339,10 +343,12 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
                         current_line = char
                 if current_line:
                     if y_pos < margin_bottom + 30:
+                        # 현재 페이지 마무리
                         c.setFont(font_name, 10)
-                        c.drawCentredString(page_width/2, 15*mm, f"- {idx + 2} -")
+                        c.drawCentredString(page_width/2, 15*mm, f"- {page_num} -")
                         c.showPage()
-                        # 새 페이지에도 내지 배경 적용
+                        page_num += 1
+                        # 새 페이지에 내지 배경 적용
                         if bg_path and os.path.exists(bg_path):
                             try:
                                 c.drawImage(bg_path, 0, 0, width=page_width, height=page_height)
@@ -354,11 +360,13 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
                     y_pos -= line_spacing
                 y_pos -= line_spacing * 0.5
             
+            # 챕터 끝 - 페이지 번호 표시하고 다음 페이지로
             c.setFont(font_name, 10)
-            c.drawCentredString(page_width/2, 15*mm, f"- {idx + 2} -")
+            c.drawCentredString(page_width/2, 15*mm, f"- {page_num} -")
             c.showPage()
+            page_num += 1
         
-        # 3. 안내지
+        # 3. 안내지 (페이지 번호 없음)
         info_path = templates.get('info')
         if info_path and os.path.exists(info_path):
             try:
@@ -369,6 +377,7 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
         else:
             c.setFont(font_name, title_size)
             c.drawCentredString(page_width/2, page_height/2, "감사합니다")
+        c.showPage()  # 안내지 페이지 마무리
         
         c.save()
         return buffer.getvalue()
