@@ -105,6 +105,7 @@ for d in [UPLOAD_DIR, OUTPUT_DIR]:
 TEMPLATE_TYPES = {"cover": "📕 표지", "background": "📄 내지", "info": "📋 안내지"}
 FONT_OPTIONS = {"NanumGothic": "나눔고딕", "NanumMyeongjo": "나눔명조", "NanumBarunGothic": "나눔바른고딕"}
 CATEGORIES = ["사주", "타로", "연애", "기타"]
+SERVICE_TYPES = {"single": "1인용 (사주, 타로 등)", "couple": "2인용 (궁합, 재회 등)"}
 
 def is_admin() -> bool:
     return st.session_state.user and st.session_state.user.get('is_admin', False)
@@ -664,14 +665,26 @@ def show_admin_settings():
         with st.expander("➕ 새 기성상품 등록", expanded=False):
             product_name = st.text_input("상품명", key="new_prod")
             
+            # 서비스 유형 선택
+            st.markdown("**📋 서비스 유형**")
+            service_type = st.radio(
+                "유형 선택",
+                ["single", "couple"],
+                format_func=lambda x: SERVICE_TYPES[x],
+                horizontal=True,
+                key="new_svc_type"
+            )
+            if service_type == "couple":
+                st.info("💡 2인용: 엑셀에 고객1_이름, 고객1_생년월일, 고객2_이름, 고객2_생년월일 등의 컬럼 필요")
+            
             # 목차/지침 좌우 배치
             col_left, col_right = st.columns(2)
             with col_left:
                 st.markdown("**📑 목차** (줄바꿈 구분)")
-                new_chapters = st.text_area("목차", height=567, key="new_ch", placeholder="1. 총운\n2. 재물운\n3. 건강운")
+                new_chapters = st.text_area("목차", height=500, key="new_ch", placeholder="1. 총운\n2. 재물운\n3. 건강운")
             with col_right:
                 st.markdown("**📜 AI 작성 지침**")
-                new_guideline = st.text_area("지침", height=567, key="new_g", placeholder="- 긍정적 톤\n- 300자 이상")
+                new_guideline = st.text_area("지침", height=500, key="new_g", placeholder="- 긍정적 톤\n- 300자 이상")
             
             font_settings = render_font_settings("new_admin")
             
@@ -686,7 +699,7 @@ def show_admin_settings():
             
             if st.button("💾 기성상품 등록", type="primary", use_container_width=True):
                 if product_name:
-                    result = add_service(product_name, "", None, **font_settings)
+                    result = add_service(product_name, "", None, service_type=service_type, **font_settings)
                     if result.get("success"):
                         svc_id = result["id"]
                         if new_chapters:
@@ -724,16 +737,28 @@ def show_service_edit_form(svc: dict, prefix: str):
     
     edit_name = st.text_input("상품명", value=svc['name'], key=f"{prefix}_name_{svc_id}")
     
+    # 서비스 유형
+    current_type = svc.get('service_type', 'single')
+    type_idx = 0 if current_type == 'single' else 1
+    edit_type = st.radio(
+        "서비스 유형",
+        ["single", "couple"],
+        index=type_idx,
+        format_func=lambda x: SERVICE_TYPES[x],
+        horizontal=True,
+        key=f"{prefix}_type_{svc_id}"
+    )
+    
     # 좌우 배치
     col_left, col_right = st.columns(2)
     with col_left:
         st.markdown("**📑 목차**")
         current_chapters = "\n".join([ch['title'] for ch in chapters])
-        edit_chapters = st.text_area("목차", value=current_chapters, height=400, key=f"{prefix}_ch_{svc_id}")
+        edit_chapters = st.text_area("목차", value=current_chapters, height=350, key=f"{prefix}_ch_{svc_id}")
     with col_right:
         st.markdown("**📜 지침**")
         current_guideline = guidelines[0]['content'] if guidelines else ""
-        edit_guideline = st.text_area("지침", value=current_guideline, height=400, key=f"{prefix}_g_{svc_id}")
+        edit_guideline = st.text_area("지침", value=current_guideline, height=350, key=f"{prefix}_g_{svc_id}")
     
     font_defaults = {k: svc.get(k, v) for k, v in 
                      {"font_family": "NanumGothic", "font_size_title": 24, "font_size_subtitle": 16,
@@ -753,7 +778,7 @@ def show_service_edit_form(svc: dict, prefix: str):
     col1, col2 = st.columns(2)
     with col1:
         if st.button("💾 저장", key=f"{prefix}_save_{svc_id}", type="primary", use_container_width=True):
-            update_service(svc_id, name=edit_name, **font_settings)
+            update_service(svc_id, name=edit_name, service_type=edit_type, **font_settings)
             for ch in chapters:
                 delete_chapter(ch['id'])
             for idx, ch in enumerate(edit_chapters.strip().split("\n")):
@@ -913,12 +938,14 @@ def show_service_work():
         st.markdown('<span class="section-title">2️⃣ 기성상품 선택</span>', unsafe_allow_html=True)
         admin_services = get_admin_services()
         if admin_services:
-            svc_names = [s['name'] for s in admin_services]
-            selected_name = st.selectbox("기성상품 목록", svc_names, key="ready_svc")
-            selected_service = next((s for s in admin_services if s['name'] == selected_name), None)
+            svc_names = [f"{s['name']} {'💑' if s.get('service_type') == 'couple' else '👤'}" for s in admin_services]
+            selected_idx = st.selectbox("기성상품 목록", range(len(admin_services)), 
+                                       format_func=lambda x: svc_names[x], key="ready_svc")
+            selected_service = admin_services[selected_idx]
             if selected_service:
                 chapters = get_chapters_by_service(selected_service['id'])
-                st.success(f"✅ '{selected_name}' 선택됨 (목차 {len(chapters)}개)")
+                svc_type_label = "2인용(궁합)" if selected_service.get('service_type') == 'couple' else "1인용"
+                st.success(f"✅ '{selected_service['name']}' 선택됨 ({svc_type_label}, 목차 {len(chapters)}개)")
         else:
             st.warning("등록된 기성상품이 없습니다.")
     
@@ -928,30 +955,46 @@ def show_service_work():
         my_services = get_user_services(user['id'])
         
         if my_services:
-            my_names = ["➕ 새로 만들기"] + [s['name'] for s in my_services]
-            selected_my = st.selectbox("내 상품 목록", my_names, key="my_svc")
+            my_names = ["➕ 새로 만들기"] + [f"{s['name']} {'💑' if s.get('service_type') == 'couple' else '👤'}" for s in my_services]
+            selected_idx = st.selectbox("내 상품 목록", range(len(my_names)), 
+                                       format_func=lambda x: my_names[x], key="my_svc")
             
-            if selected_my != "➕ 새로 만들기":
-                selected_service = next((s for s in my_services if s['name'] == selected_my), None)
+            if selected_idx > 0:
+                selected_service = my_services[selected_idx - 1]
                 if selected_service:
                     chapters = get_chapters_by_service(selected_service['id'])
-                    st.success(f"✅ '{selected_my}' 선택됨 (목차 {len(chapters)}개)")
+                    svc_type_label = "2인용(궁합)" if selected_service.get('service_type') == 'couple' else "1인용"
+                    st.success(f"✅ '{selected_service['name']}' 선택됨 ({svc_type_label}, 목차 {len(chapters)}개)")
                     with st.expander("✏️ 상품 수정", expanded=False):
                         show_service_edit_form(selected_service, "my")
+            else:
+                selected_idx = 0
         else:
-            selected_my = "➕ 새로 만들기"
+            selected_idx = 0
         
-        if not my_services or selected_my == "➕ 새로 만들기":
+        if not my_services or selected_idx == 0:
             with st.expander("➕ 개별상품 만들기", expanded=True):
                 my_name = st.text_input("상품명", key="my_prod")
+                
+                # 서비스 유형 선택
+                st.markdown("**📋 서비스 유형**")
+                my_svc_type = st.radio(
+                    "유형 선택",
+                    ["single", "couple"],
+                    format_func=lambda x: SERVICE_TYPES[x],
+                    horizontal=True,
+                    key="my_svc_type"
+                )
+                if my_svc_type == "couple":
+                    st.info("💡 2인용: 엑셀에 고객1_이름, 고객1_생년월일, 고객2_이름, 고객2_생년월일 등의 컬럼 필요")
                 
                 col_left, col_right = st.columns(2)
                 with col_left:
                     st.markdown("**📑 목차**")
-                    my_chapters = st.text_area("목차", height=400, key="my_ch")
+                    my_chapters = st.text_area("목차", height=350, key="my_ch")
                 with col_right:
                     st.markdown("**📜 지침**")
-                    my_guide = st.text_area("지침", height=400, key="my_g")
+                    my_guide = st.text_area("지침", height=350, key="my_g")
                 
                 font_settings = render_font_settings("new_my")
                 
@@ -966,7 +1009,7 @@ def show_service_work():
                 
                 if st.button("💾 저장", type="primary", use_container_width=True):
                     if my_name and my_chapters:
-                        result = add_service(my_name, "", user['id'], **font_settings)
+                        result = add_service(my_name, "", user['id'], service_type=my_svc_type, **font_settings)
                         if result.get("success"):
                             svc_id = result["id"]
                             for idx, ch in enumerate(my_chapters.strip().split("\n")):
@@ -1011,6 +1054,13 @@ def show_service_work():
     
     # ===== 엑셀 업로드 방식 =====
     if "엑셀" in input_method:
+        # 서비스 유형 표시
+        svc_type = selected_service.get('service_type', 'single')
+        if svc_type == 'couple':
+            st.info("💑 **2인용 서비스** - 엑셀 컬럼: 고객1_이름, 고객1_생년월일, 고객1_음력양력, 고객1_태어난시간, 고객2_이름, 고객2_생년월일, 고객2_음력양력, 고객2_태어난시간, 이메일")
+        else:
+            st.info("👤 **1인용 서비스** - 엑셀 컬럼: 이름, 생년월일, 음력양력, 태어난시간, 이메일")
+        
         uploaded = st.file_uploader("📂 고객 엑셀 파일 (.xlsx)", type=["xlsx", "xls"], key="cust")
         
         if uploaded:
@@ -1018,18 +1068,37 @@ def show_service_work():
             st.session_state.customers_df = df
             st.session_state.selected_customers = set(range(len(df)))
             st.session_state.input_mode = "excel"
-            st.success(f"✅ {len(df)}명 로드됨")
+            st.success(f"✅ {len(df)}건 로드됨")
         
         if st.session_state.customers_df is not None and st.session_state.get('input_mode') == 'excel':
             df = st.session_state.customers_df
             
-            name_col = None
-            for col in ['이름', 'name', 'Name', '성명', '고객명']:
-                if col in df.columns:
-                    name_col = col
-                    break
-            if not name_col:
-                name_col = df.columns[0]
+            # 서비스 유형에 따른 이름 컬럼 결정
+            if svc_type == 'couple':
+                # 2인용: 고객1_이름, 고객2_이름
+                name1_col = None
+                name2_col = None
+                for col in ['고객1_이름', '고객1이름', 'name1', 'Name1']:
+                    if col in df.columns:
+                        name1_col = col
+                        break
+                for col in ['고객2_이름', '고객2이름', 'name2', 'Name2']:
+                    if col in df.columns:
+                        name2_col = col
+                        break
+                if not name1_col:
+                    name1_col = df.columns[0]
+                if not name2_col and len(df.columns) > 1:
+                    name2_col = df.columns[1]
+            else:
+                # 1인용: 이름
+                name_col = None
+                for col in ['이름', 'name', 'Name', '성명', '고객명']:
+                    if col in df.columns:
+                        name_col = col
+                        break
+                if not name_col:
+                    name_col = df.columns[0]
             
             st.markdown("---")
             
@@ -1060,7 +1129,14 @@ def show_service_work():
             header_cols[4].markdown("**다운**")
             
             for idx, row in df.iterrows():
-                cust_name = row[name_col]
+                # 서비스 유형에 따른 이름 표시
+                if svc_type == 'couple':
+                    cust_name1 = row.get(name1_col, "고객1") if name1_col else "고객1"
+                    cust_name2 = row.get(name2_col, "고객2") if name2_col else "고객2"
+                    display_name = f"{cust_name1} & {cust_name2}"
+                else:
+                    display_name = row.get(name_col, "고객") if name_col else "고객"
+                
                 is_done = idx in st.session_state.completed_customers
                 
                 col0, col1, col2, col3, col4 = st.columns([0.5, 2.5, 2, 1, 1])
@@ -1074,7 +1150,7 @@ def show_service_work():
                         st.session_state.selected_customers.discard(idx)
                 
                 with col1:
-                    st.write(f"**{cust_name}**")
+                    st.write(f"**{display_name}**")
                 
                 with col2:
                     if is_done:
@@ -1090,7 +1166,12 @@ def show_service_work():
                     if is_done:
                         pdf_data = st.session_state.generated_pdfs.get(idx)
                         if pdf_data:
-                            st.download_button("⬇️", pdf_data, f"{cust_name}_운세.pdf",
+                            # 파일명 결정
+                            if svc_type == 'couple':
+                                filename = f"{cust_name1}_{cust_name2}_궁합.pdf"
+                            else:
+                                filename = f"{display_name}_운세.pdf"
+                            st.download_button("⬇️", pdf_data, filename,
                                               "application/pdf", key=f"dl_{idx}")
             
             st.markdown("---")
@@ -1098,9 +1179,9 @@ def show_service_work():
             pending_selected = [i for i in st.session_state.selected_customers
                               if i not in st.session_state.completed_customers]
             
-            st.info(f"📊 선택: {len(st.session_state.selected_customers)}명 | 완료: {len(st.session_state.completed_customers)}/{len(df)}")
+            st.info(f"📊 선택: {len(st.session_state.selected_customers)}건 | 완료: {len(st.session_state.completed_customers)}/{len(df)}")
             
-            if st.button(f"🚀 선택한 {len(pending_selected)}명 PDF 생성", type="primary", use_container_width=True):
+            if st.button(f"🚀 선택한 {len(pending_selected)}건 PDF 생성", type="primary", use_container_width=True):
                 if not pending_selected:
                     st.warning("생성할 고객을 선택하세요.")
                 else:
@@ -1110,19 +1191,29 @@ def show_service_work():
                     
                     for i, idx in enumerate(pending_selected):
                         row = df.iloc[idx]
-                        cust_name = row[name_col]
                         
-                        status_area.markdown(f"### 📝 {cust_name} 생성 중... ({i+1}/{len(pending_selected)})")
+                        # 서비스 유형에 따른 이름 및 표지 이름 결정
+                        if svc_type == 'couple':
+                            cust_name1 = row.get(name1_col, "고객1") if name1_col else "고객1"
+                            cust_name2 = row.get(name2_col, "고객2") if name2_col else "고객2"
+                            display_name = f"{cust_name1} & {cust_name2}"
+                            cover_name = f"{cust_name1}님 & {cust_name2}님"
+                        else:
+                            display_name = row.get(name_col, "고객") if name_col else "고객"
+                            cover_name = f"{display_name}님"
+                        
+                        status_area.markdown(f"### 📝 {display_name} 생성 중... ({i+1}/{len(pending_selected)})")
                         
                         pdf_bytes = generate_pdf_with_progress(
                             row.to_dict(), selected_service, api_key,
-                            current_progress_bar, current_detail
+                            current_progress_bar, current_detail,
+                            custom_name=cover_name
                         )
                         
                         if pdf_bytes:
                             st.session_state.completed_customers[idx] = True
                             st.session_state.generated_pdfs[idx] = pdf_bytes
-                            st.toast(f"🔔 {cust_name} 완료!")
+                            st.toast(f"🔔 {display_name} 완료!")
                         
                         current_progress_bar.progress(1.0, text="100% 완료")
                         time.sleep(0.3)

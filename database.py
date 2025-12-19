@@ -96,6 +96,9 @@ class Service(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
+    # 서비스 유형: single=1인용, couple=2인용(궁합/재회)
+    service_type = Column(String(20), default="single")
+    
     # 폰트 설정
     font_family = Column(String(50), default="NanumGothic")  # 폰트 종류
     font_size_title = Column(Integer, default=24)    # 대제목 크기

@@ -18,6 +18,7 @@ def _service_to_dict(s) -> dict:
         "description": s.description,
         "owner_id": s.owner_id,
         "is_active": s.is_active,
+        "service_type": s.service_type or "single",
         "font_family": s.font_family or "NanumGothic",
         "font_size_title": s.font_size_title or 24,
         "font_size_subtitle": s.font_size_subtitle or 16,
@@ -95,6 +96,7 @@ def get_user_services(user_id: int) -> list:
 # ============================================
 
 def add_service(name: str, description: str = "", owner_id: int = None,
+                service_type: str = "single",
                 font_family: str = "NanumGothic", font_size_title: int = 24,
                 font_size_subtitle: int = 16, font_size_body: int = 12,
                 letter_spacing: int = 0, line_height: int = 180,
@@ -114,6 +116,7 @@ def add_service(name: str, description: str = "", owner_id: int = None,
             description=description.strip() if description else "",
             owner_id=owner_id,
             is_active=True,
+            service_type=service_type,
             font_family=font_family,
             font_size_title=font_size_title,
             font_size_subtitle=font_size_subtitle,
@@ -139,6 +142,7 @@ def add_service(name: str, description: str = "", owner_id: int = None,
 
 
 def update_service(service_id: int, name: str = None, description: str = None, is_active: bool = None,
+                   service_type: str = None,
                    font_family: str = None, font_size_title: int = None, font_size_subtitle: int = None,
                    font_size_body: int = None, letter_spacing: int = None, line_height: int = None,
                    char_width: int = None, margin_top: int = None, margin_bottom: int = None,
@@ -159,6 +163,8 @@ def update_service(service_id: int, name: str = None, description: str = None, i
             service.description = description.strip()
         if is_active is not None:
             service.is_active = is_active
+        if service_type is not None:
+            service.service_type = service_type
         if font_family is not None:
             service.font_family = font_family
         if font_size_title is not None:
