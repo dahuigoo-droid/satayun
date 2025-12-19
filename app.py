@@ -450,7 +450,76 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
             c.drawCentredString(page_width/2, page_height/2, customer_name)
         c.showPage()
         
-        # ========== 2. 운세 요약 페이지 (차트) ==========
+        # ========== 2. 목차 페이지 ==========
+        if bg_path and os.path.exists(bg_path):
+            try:
+                c.drawImage(bg_path, 0, 0, width=page_width, height=page_height)
+            except:
+                pass
+        
+        y_pos = page_height - margin_top
+        
+        # 목차 제목
+        c.setFont(font_name, subtitle_size + 4)
+        c.setFillColor(HexColor('#1F2937'))
+        c.drawCentredString(page_width/2, y_pos, "📋 목 차")
+        
+        y_pos -= 50
+        
+        # 구분선
+        c.setStrokeColor(HexColor('#E5E7EB'))
+        c.setLineWidth(1)
+        c.line(margin_left + 30, y_pos, page_width - margin_right - 30, y_pos)
+        
+        y_pos -= 40
+        
+        # 목차 항목들
+        c.setFont(font_name, body_size + 2)
+        c.setFillColor(HexColor('#374151'))
+        
+        # 차트 페이지 번호 계산
+        chart_pages = 2 if (scores and charts_available) else 0
+        start_page = 3 + chart_pages  # 표지(1) + 목차(2) + 차트페이지들
+        
+        for idx, chapter in enumerate(chapters_content):
+            chapter_num = idx + 1
+            chapter_title = chapter['title']
+            page_num = start_page + idx
+            
+            # 번호와 제목
+            c.setFillColor(HexColor('#6366F1'))
+            c.drawString(margin_left + 40, y_pos, f"{chapter_num}.")
+            
+            c.setFillColor(HexColor('#374151'))
+            c.drawString(margin_left + 70, y_pos, chapter_title)
+            
+            # 점선
+            dots_start = margin_left + 80 + c.stringWidth(chapter_title, font_name, body_size + 2)
+            dots_end = page_width - margin_right - 60
+            if dots_end > dots_start + 20:
+                c.setFillColor(HexColor('#D1D5DB'))
+                dot_x = dots_start + 10
+                while dot_x < dots_end:
+                    c.drawString(dot_x, y_pos, "·")
+                    dot_x += 8
+            
+            # 페이지 번호
+            c.setFillColor(HexColor('#6366F1'))
+            c.drawRightString(page_width - margin_right - 40, y_pos, str(page_num))
+            
+            y_pos -= 35
+            
+            # 페이지 넘침 방지
+            if y_pos < margin_bottom + 50:
+                break
+        
+        # 목차 페이지 번호
+        c.setFont(font_name, 10)
+        c.setFillColor(HexColor('#9CA3AF'))
+        c.drawCentredString(page_width/2, 15*mm, "- 2 -")
+        c.showPage()
+        
+        # ========== 3. 운세 요약 페이지 (차트) ==========
         if scores and charts_available:
             # 배경
             if bg_path and os.path.exists(bg_path):
@@ -537,7 +606,7 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
                 y_pos -= 25
             
             c.setFont(font_name, 10)
-            c.drawCentredString(page_width/2, 15*mm, "- 운세 요약 -")
+            c.drawCentredString(page_width/2, 15*mm, "- 3 -")
             c.showPage()
             
             # ========== 3. 상세 차트 페이지 ==========
@@ -629,11 +698,11 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
                            width=70*mm, height=70*mm)
             
             c.setFont(font_name, 10)
-            c.drawCentredString(page_width/2, 15*mm, "- 상세 분석 -")
+            c.drawCentredString(page_width/2, 15*mm, "- 4 -")
             c.showPage()
         
         # ========== 4. 본문 ==========
-        page_num = 4 if (scores and charts_available) else 2
+        page_num = 5 if (scores and charts_available) else 3
         
         for idx, chapter in enumerate(chapters_content):
             if bg_path and os.path.exists(bg_path):
