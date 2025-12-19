@@ -1297,26 +1297,40 @@ def show_service_edit_form(svc: dict, prefix: str):
     col1, col2 = st.columns(2)
     with col1:
         if st.button("💾 저장", key=f"{prefix}_save_{svc_id}", type="primary", use_container_width=True):
-            update_service(svc_id, name=edit_name, **font_settings)
-            for ch in chapters:
+            # 캐시 먼저 초기화 (중복 방지)
+            clear_service_cache()
+            
+            # 실시간 DB에서 목차 조회 후 삭제
+            fresh_chapters = get_chapters_by_service(svc_id)
+            for ch in fresh_chapters:
                 delete_chapter(ch['id'])
+            
+            # 새 목차 추가
             for idx, ch in enumerate(edit_chapters.strip().split("\n")):
                 if ch.strip():
                     add_chapter(svc_id, ch.strip(), "", idx+1)
-            if guidelines:
-                update_guideline(guidelines[0]['id'], guidelines[0]['title'], edit_guideline)
+            
+            # 서비스 업데이트
+            update_service(svc_id, name=edit_name, **font_settings)
+            
+            # 지침 업데이트
+            fresh_guidelines = get_guidelines_by_service(svc_id)
+            if fresh_guidelines:
+                update_guideline(fresh_guidelines[0]['id'], fresh_guidelines[0]['title'], edit_guideline)
             elif edit_guideline:
                 add_guideline(svc_id, f"{edit_name} 지침", edit_guideline)
             
+            # 템플릿 업데이트
+            fresh_templates = get_templates_by_service(svc_id)
             for tt in ["cover", "background", "info"]:
                 new_file = st.session_state.get(f"{prefix}_{tt}_{svc_id}")
                 if new_file:
-                    for t in templates:
+                    for t in fresh_templates:
                         if t['template_type'] == tt:
                             delete_template(t['id'])
                     add_template(svc_id, tt, TEMPLATE_TYPES[tt], save_uploaded_file(new_file, f"{edit_name}_{tt}"))
+            
             st.success("저장됨!")
-            clear_service_cache()
             st.rerun()
     with col2:
         if st.button("🗑️ 삭제", key=f"{prefix}_del_{svc_id}", use_container_width=True):
