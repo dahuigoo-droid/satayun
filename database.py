@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 🗄️ 데이터베이스 모델 및 연결
-회원 등급 1/2/3단계 버전
+회원 등급 1/2/3단계 버전 + 캐싱 최적화
 """
 
 import os
@@ -28,19 +28,31 @@ if not DATABASE_URL:
     DATABASE_URL = os.environ.get("DATABASE_URL")
 
 # ============================================
-# 데이터베이스 엔진 생성
+# 데이터베이스 엔진 생성 (캐싱)
 # ============================================
 
-engine = None
-SessionLocal = None
 Base = declarative_base()
 
-if DATABASE_URL:
-    try:
-        engine = create_engine(DATABASE_URL, pool_pre_ping=True)
-        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    except Exception as e:
-        print(f"DB 연결 오류: {e}")
+# 캐싱된 엔진 생성
+@st.cache_resource
+def get_engine():
+    """DB 엔진 캐싱 - 앱 전체에서 재사용"""
+    if DATABASE_URL:
+        try:
+            return create_engine(
+                DATABASE_URL, 
+                pool_pre_ping=True,
+                pool_size=5,
+                max_overflow=10,
+                pool_recycle=300
+            )
+        except Exception as e:
+            print(f"DB 연결 오류: {e}")
+    return None
+
+# 전역 변수 (호환성 유지)
+engine = get_engine() if DATABASE_URL else None
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine) if engine else None
 
 # ============================================
 # 모델 정의

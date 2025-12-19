@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 🔮 사주/연애/타로 PDF 자동 생성 플랫폼
-자료실 + 폰트설정 + 진행률 개선 버전
+자료실 + 폰트설정 + 진행률 개선 + 속도 최적화 버전
 """
 
 import streamlit as st
@@ -37,6 +37,52 @@ from contents import (
     get_templates_by_service, add_template, delete_template
 )
 from notices import get_all_notices, create_notice, update_notice, delete_notice, toggle_pin_notice
+
+# ============================================
+# 캐싱 함수 (속도 최적화)
+# ============================================
+
+@st.cache_data(ttl=30)  # 30초 캐싱
+def cached_get_admin_services():
+    """기성상품 목록 캐싱"""
+    return get_admin_services()
+
+@st.cache_data(ttl=30)
+def cached_get_user_services(user_id: int):
+    """개별상품 목록 캐싱"""
+    return get_user_services(user_id)
+
+@st.cache_data(ttl=30)
+def cached_get_chapters(service_id: int):
+    """목차 캐싱"""
+    return get_chapters_by_service(service_id)
+
+@st.cache_data(ttl=30)
+def cached_get_guidelines(service_id: int):
+    """지침 캐싱"""
+    return get_guidelines_by_service(service_id)
+
+@st.cache_data(ttl=30)
+def cached_get_templates(service_id: int):
+    """템플릿 캐싱"""
+    return get_templates_by_service(service_id)
+
+@st.cache_data(ttl=60)
+def cached_get_notices():
+    """공지사항 캐싱"""
+    return get_all_notices()
+
+def clear_service_cache():
+    """서비스 관련 캐시 초기화 (데이터 변경 시 호출)"""
+    cached_get_admin_services.clear()
+    cached_get_user_services.clear()
+    cached_get_chapters.clear()
+    cached_get_guidelines.clear()
+    cached_get_templates.clear()
+
+def clear_notice_cache():
+    """공지사항 캐시 초기화"""
+    cached_get_notices.clear()
 
 # ============================================
 # CSS
@@ -138,7 +184,7 @@ def verify_pdf_generation_ready(service_id: int, api_key: str) -> tuple:
     if not service_id:
         errors.append("❌ 상품이 선택되지 않았습니다.")
         return False, errors
-    chapters = get_chapters_by_service(service_id)
+    chapters = cached_get_chapters(service_id)
     if not chapters:
         errors.append("❌ 목차가 등록되지 않았습니다.")
     if errors and any("❌" in e for e in errors):
@@ -814,11 +860,11 @@ def generate_pdf_for_customer(customer_data: dict, service: dict, api_key: str,
     """고객용 PDF 생성 (진행률 콜백 포함)"""
     service_id = service['id']
     service_type = service.get('service_type', 'single')
-    chapters = get_chapters_by_service(service_id)
-    guidelines = get_guidelines_by_service(service_id)
+    chapters = cached_get_chapters(service_id)
+    guidelines = cached_get_guidelines(service_id)
     guideline_text = guidelines[0]['content'] if guidelines else "친절하고 긍정적인 톤으로 작성하세요."
     
-    templates_list = get_templates_by_service(service_id)
+    templates_list = cached_get_templates(service_id)
     templates = {t['template_type']: t['image_path'] for t in templates_list 
                  if t.get('image_path') and os.path.exists(t['image_path'])}
     
@@ -857,11 +903,11 @@ def generate_pdf_with_progress(customer_data: dict, service: dict, api_key: str,
     """고객용 PDF 생성 - 실시간 진행률 표시"""
     service_id = service['id']
     service_type = service.get('service_type', 'single')
-    chapters = get_chapters_by_service(service_id)
-    guidelines = get_guidelines_by_service(service_id)
+    chapters = cached_get_chapters(service_id)
+    guidelines = cached_get_guidelines(service_id)
     guideline_text = guidelines[0]['content'] if guidelines else "친절하고 긍정적인 톤으로 작성하세요."
     
-    templates_list = get_templates_by_service(service_id)
+    templates_list = cached_get_templates(service_id)
     templates = {t['template_type']: t['image_path'] for t in templates_list 
                  if t.get('image_path') and os.path.exists(t['image_path'])}
     
@@ -1130,12 +1176,13 @@ def show_admin_settings():
                         if info:
                             add_template(svc_id, "info", "안내지", save_uploaded_file(info, f"{product_name}_info"))
                         st.success(f"'{product_name}' 등록됨!")
+                        clear_service_cache()
                         st.rerun()
         
         st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
         st.markdown("**등록된 기성상품**")
         
-        services = get_admin_services()
+        services = cached_get_admin_services()
         if not services:
             st.info("등록된 기성상품이 없습니다.")
         else:
@@ -1146,9 +1193,9 @@ def show_admin_settings():
 def show_service_edit_form(svc: dict, prefix: str):
     """상품 수정 폼"""
     svc_id = svc['id']
-    chapters = get_chapters_by_service(svc_id)
-    guidelines = get_guidelines_by_service(svc_id)
-    templates = get_templates_by_service(svc_id)
+    chapters = cached_get_chapters(svc_id)
+    guidelines = cached_get_guidelines(svc_id)
+    templates = cached_get_templates(svc_id)
     
     edit_name = st.text_input("상품명", value=svc['name'], key=f"{prefix}_name_{svc_id}")
     
@@ -1200,10 +1247,12 @@ def show_service_edit_form(svc: dict, prefix: str):
                             delete_template(t['id'])
                     add_template(svc_id, tt, TEMPLATE_TYPES[tt], save_uploaded_file(new_file, f"{edit_name}_{tt}"))
             st.success("저장됨!")
+            clear_service_cache()
             st.rerun()
     with col2:
         if st.button("🗑️ 삭제", key=f"{prefix}_del_{svc_id}", use_container_width=True):
             delete_service(svc_id)
+            clear_service_cache()
             st.rerun()
 
 # ============================================
@@ -1339,14 +1388,14 @@ def show_service_work():
     # 2. 기성상품
     if "기성상품" in product_type:
         st.markdown('<span class="section-title">2️⃣ 기성상품 선택</span>', unsafe_allow_html=True)
-        admin_services = get_admin_services()
+        admin_services = cached_get_admin_services()
         if admin_services:
             svc_names = [s['name'] for s in admin_services]
             selected_idx = st.selectbox("기성상품 목록", range(len(admin_services)), 
                                        format_func=lambda x: svc_names[x], key="ready_svc")
             selected_service = admin_services[selected_idx]
             if selected_service:
-                chapters = get_chapters_by_service(selected_service['id'])
+                chapters = cached_get_chapters(selected_service['id'])
                 st.success(f"✅ '{selected_service['name']}' 선택됨 (목차 {len(chapters)}개)")
         else:
             st.warning("등록된 기성상품이 없습니다.")
@@ -1354,7 +1403,7 @@ def show_service_work():
     # 2. 개별상품
     elif "개별상품" in product_type:
         st.markdown('<span class="section-title">2️⃣ 개별상품</span>', unsafe_allow_html=True)
-        my_services = get_user_services(user['id'])
+        my_services = cached_get_user_services(user['id'])
         
         if my_services:
             my_names = ["➕ 새로 만들기"] + [s['name'] for s in my_services]
@@ -1364,7 +1413,7 @@ def show_service_work():
             if selected_idx > 0:
                 selected_service = my_services[selected_idx - 1]
                 if selected_service:
-                    chapters = get_chapters_by_service(selected_service['id'])
+                    chapters = cached_get_chapters(selected_service['id'])
                     st.success(f"✅ '{selected_service['name']}' 선택됨 (목차 {len(chapters)}개)")
                     with st.expander("✏️ 상품 수정", expanded=False):
                         show_service_edit_form(selected_service, "my")
@@ -1413,6 +1462,7 @@ def show_service_work():
                             if my_info:
                                 add_template(svc_id, "info", "안내지", save_uploaded_file(my_info, f"{my_name}_info"))
                             st.success("저장됨!")
+                            clear_service_cache()
                             st.rerun()
     
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
@@ -1871,9 +1921,10 @@ def show_notices():
                 if title and content:
                     create_notice(st.session_state.user['id'], title, content, None, pinned)
                     st.success("등록됨!")
+                    clear_notice_cache()
                     st.rerun()
     st.markdown("---")
-    notices = get_all_notices()
+    notices = cached_get_notices()
     if not notices:
         st.info("공지가 없습니다.")
     else:
@@ -1887,14 +1938,17 @@ def show_notices():
                     with c1:
                         if st.button("💾", key=f"sv_{n['id']}"):
                             update_notice(n['id'], ed_title, ed_content)
+                            clear_notice_cache()
                             st.rerun()
                     with c2:
                         if st.button("📌", key=f"pn_{n['id']}"):
                             toggle_pin_notice(n['id'])
+                            clear_notice_cache()
                             st.rerun()
                     with c3:
                         if st.button("🗑️", key=f"dl_{n['id']}"):
                             delete_notice(n['id'])
+                            clear_notice_cache()
                             st.rerun()
                 else:
                     st.write(n['content'])
