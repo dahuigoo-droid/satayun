@@ -110,6 +110,10 @@ st.markdown("""
     .badge-level1 { background: #6c757d; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; }
     .badge-level2 { background: #17a2b8; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; }
     .badge-level3 { background: #28a745; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; }
+    
+    /* text_area 힌트(Press Ctrl+Enter) 숨기기 */
+    .stTextArea [data-testid="stTextAreaHelp"] { display: none !important; }
+    .stTextArea small { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1276,79 +1280,9 @@ def show_main_app():
 
 def show_admin_settings():
     st.title("⚙️ 관리자 설정")
-    tab1, tab2, tab3 = st.tabs(["🔑 API/이메일", "👥 회원관리", "📦 기성상품 등록"])
+    tab1, tab2, tab3 = st.tabs(["📦 기성상품 등록", "👥 회원관리", "🔑 API/이메일"])
     
     with tab1:
-        st.markdown('<span class="section-title">🔑 관리자 API/이메일</span>', unsafe_allow_html=True)
-        col1, col2 = st.columns(2)
-        with col1:
-            api = st.text_input("OpenAI API 키", value=get_system_config(ConfigKeys.ADMIN_API_KEY, ""), type="password")
-            if st.button("💾 API 저장"):
-                set_system_config(ConfigKeys.ADMIN_API_KEY, api)
-                st.success("저장됨")
-        with col2:
-            gmail = st.text_input("Gmail", value=get_system_config(ConfigKeys.ADMIN_GMAIL, ""))
-            gmail_pw = st.text_input("앱 비밀번호", value=get_system_config(ConfigKeys.ADMIN_GMAIL_PASSWORD, ""), type="password")
-            if st.button("💾 이메일 저장"):
-                set_system_config(ConfigKeys.ADMIN_GMAIL, gmail)
-                set_system_config(ConfigKeys.ADMIN_GMAIL_PASSWORD, gmail_pw)
-                st.success("저장됨")
-    
-    with tab2:
-        st.markdown('<span class="section-title">👥 회원 관리</span>', unsafe_allow_html=True)
-        st.markdown("**1단계**: 기성상품만 | **2단계**: 개별상품만 | **3단계**: 둘 다")
-        st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
-        
-        subtab1, subtab2 = st.tabs(["전체 회원", "승인 대기"])
-        with subtab1:
-            for u in get_all_users():
-                if u['id'] == st.session_state.user['id']:
-                    continue
-                col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 1])
-                with col1:
-                    status_icon = "🟢" if u['status'] == 'approved' else "🔴"
-                    admin_mark = "👑" if u['is_admin'] else ""
-                    st.write(f"{status_icon} {admin_mark} **{u['name']}**")
-                    st.caption(u['email'])
-                with col2:
-                    new_level = st.selectbox("등급", [1, 2, 3], index=u.get('member_level', 1) - 1,
-                                            format_func=lambda x: f"{x}단계", key=f"lvl_{u['id']}")
-                with col3:
-                    new_api = st.selectbox("API", ["unified", "separated"],
-                                          index=0 if u.get('api_mode') == 'unified' else 1,
-                                          format_func=lambda x: "통합" if x == "unified" else "분리",
-                                          key=f"api_{u['id']}")
-                with col4:
-                    new_email = st.selectbox("이메일", ["unified", "separated"],
-                                            index=0 if u.get('email_mode') == 'unified' else 1,
-                                            format_func=lambda x: "통합" if x == "unified" else "분리",
-                                            key=f"email_{u['id']}")
-                with col5:
-                    if st.button("💾", key=f"save_{u['id']}"):
-                        update_user_settings(u['id'], new_level, new_api, new_email)
-                        st.rerun()
-                    if u['status'] == 'approved':
-                        if st.button("🚫", key=f"sus_{u['id']}"):
-                            suspend_user(u['id'])
-                            st.rerun()
-                    elif u['status'] == 'suspended':
-                        if st.button("✅", key=f"act_{u['id']}"):
-                            activate_user(u['id'])
-                            st.rerun()
-                st.markdown("---")
-        
-        with subtab2:
-            pending = get_pending_users()
-            if not pending:
-                st.success("대기 중인 회원이 없습니다.")
-            for u in pending:
-                col1, col2 = st.columns([4, 1])
-                col1.write(f"**{u['name']}** ({u['email']})")
-                if col2.button("✅ 승인", key=f"ap_{u['id']}", type="primary"):
-                    approve_user(u['id'])
-                    st.rerun()
-    
-    with tab3:
         st.markdown('<span class="section-title">📦 기성상품 등록</span>', unsafe_allow_html=True)
         
         # 새 상품 등록 토글
@@ -1416,6 +1350,76 @@ def show_admin_settings():
             for svc in services:
                 with st.expander(f"📌 {svc['name']}"):
                     show_service_edit_form(svc, "admin")
+    
+    with tab2:
+        st.markdown('<span class="section-title">👥 회원 관리</span>', unsafe_allow_html=True)
+        st.markdown("**1단계**: 기성상품만 | **2단계**: 개별상품만 | **3단계**: 둘 다")
+        st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+        
+        subtab1, subtab2 = st.tabs(["전체 회원", "승인 대기"])
+        with subtab1:
+            for u in get_all_users():
+                if u['id'] == st.session_state.user['id']:
+                    continue
+                col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 1])
+                with col1:
+                    status_icon = "🟢" if u['status'] == 'approved' else "🔴"
+                    admin_mark = "👑" if u['is_admin'] else ""
+                    st.write(f"{status_icon} {admin_mark} **{u['name']}**")
+                    st.caption(u['email'])
+                with col2:
+                    new_level = st.selectbox("등급", [1, 2, 3], index=u.get('member_level', 1) - 1,
+                                            format_func=lambda x: f"{x}단계", key=f"lvl_{u['id']}")
+                with col3:
+                    new_api = st.selectbox("API", ["unified", "separated"],
+                                          index=0 if u.get('api_mode') == 'unified' else 1,
+                                          format_func=lambda x: "통합" if x == "unified" else "분리",
+                                          key=f"api_{u['id']}")
+                with col4:
+                    new_email = st.selectbox("이메일", ["unified", "separated"],
+                                            index=0 if u.get('email_mode') == 'unified' else 1,
+                                            format_func=lambda x: "통합" if x == "unified" else "분리",
+                                            key=f"email_{u['id']}")
+                with col5:
+                    if st.button("💾", key=f"save_{u['id']}"):
+                        update_user_settings(u['id'], new_level, new_api, new_email)
+                        st.rerun()
+                    if u['status'] == 'approved':
+                        if st.button("🚫", key=f"sus_{u['id']}"):
+                            suspend_user(u['id'])
+                            st.rerun()
+                    elif u['status'] == 'suspended':
+                        if st.button("✅", key=f"act_{u['id']}"):
+                            activate_user(u['id'])
+                            st.rerun()
+                st.markdown("---")
+        
+        with subtab2:
+            pending = get_pending_users()
+            if not pending:
+                st.success("대기 중인 회원이 없습니다.")
+            for u in pending:
+                col1, col2 = st.columns([4, 1])
+                col1.write(f"**{u['name']}** ({u['email']})")
+                if col2.button("✅ 승인", key=f"ap_{u['id']}", type="primary"):
+                    approve_user(u['id'])
+                    st.rerun()
+    
+    with tab3:
+        st.markdown('<span class="section-title">🔑 관리자 API/이메일</span>', unsafe_allow_html=True)
+        col1, col2 = st.columns(2)
+        with col1:
+            api = st.text_input("OpenAI API 키", value=get_system_config(ConfigKeys.ADMIN_API_KEY, ""), type="password")
+            if st.button("💾 API 저장"):
+                set_system_config(ConfigKeys.ADMIN_API_KEY, api)
+                st.success("저장됨")
+        with col2:
+            gmail = st.text_input("Gmail", value=get_system_config(ConfigKeys.ADMIN_GMAIL, ""))
+            gmail_pw = st.text_input("앱 비밀번호", value=get_system_config(ConfigKeys.ADMIN_GMAIL_PASSWORD, ""), type="password")
+            if st.button("💾 이메일 저장"):
+                set_system_config(ConfigKeys.ADMIN_GMAIL, gmail)
+                set_system_config(ConfigKeys.ADMIN_GMAIL_PASSWORD, gmail_pw)
+                st.success("저장됨")
 
 def show_service_edit_form(svc: dict, prefix: str):
     """상품 수정 폼"""
