@@ -8,6 +8,7 @@ import streamlit as st
 import pandas as pd
 import os
 import time
+import random
 from datetime import datetime
 from io import BytesIO
 
@@ -224,18 +225,131 @@ def generate_content_with_gpt(api_key: str, chapter_title: str, guideline: str, 
         return f"[내용 생성 오류: {str(e)}]"
 
 
-def create_pdf_document(customer_name: str, chapters_content: list, templates: dict, font_settings: dict) -> bytes:
-    """PDF 문서 생성"""
+def generate_scores_with_gpt(api_key: str, customer_data: dict, service_type: str = "single") -> dict:
+    """GPT로 운세/궁합 점수 생성"""
+    try:
+        from openai import OpenAI
+        import json
+        import random
+        
+        client = OpenAI(api_key=api_key)
+        customer_info = "\n".join([f"- {k}: {v}" for k, v in customer_data.items()])
+        
+        if service_type == "couple":
+            prompt = f"""당신은 전문 궁합 분석가입니다.
+
+[고객 정보]
+{customer_info}
+
+위 두 사람의 정보를 바탕으로 궁합 점수를 JSON 형식으로 생성해주세요.
+점수는 50-100 사이로 현실적으로 배분하세요.
+
+응답 형식 (JSON만 출력):
+{{
+    "total_score": 82,
+    "compatibility_scores": {{
+        "성격궁합": 85,
+        "감정궁합": 78,
+        "금전궁합": 72,
+        "육체궁합": 88,
+        "미래궁합": 80
+    }},
+    "person1_elements": {{"木": 25, "火": 20, "土": 15, "金": 25, "水": 15}},
+    "person2_elements": {{"木": 20, "火": 25, "土": 20, "金": 15, "水": 20}}
+}}"""
+        else:
+            prompt = f"""당신은 전문 운세 분석가입니다.
+
+[고객 정보]
+{customer_info}
+
+위 정보를 바탕으로 2025년 운세 점수를 JSON 형식으로 생성해주세요.
+점수는 50-100 사이로 현실적으로 배분하세요.
+
+응답 형식 (JSON만 출력):
+{{
+    "total_score": 78,
+    "category_scores": {{
+        "총운": 80,
+        "재물운": 75,
+        "건강운": 85,
+        "애정운": 70,
+        "직장운": 78
+    }},
+    "monthly_scores": {{
+        "1월": 72, "2월": 75, "3월": 80, "4월": 78,
+        "5월": 82, "6월": 85, "7월": 83, "8월": 80,
+        "9월": 78, "10월": 75, "11월": 77, "12월": 82
+    }},
+    "five_elements": {{"木": 25, "火": 20, "土": 15, "金": 25, "水": 15}}
+}}"""
+        
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo", messages=[{"role": "user", "content": prompt}],
+            max_tokens=500, temperature=0.7
+        )
+        
+        result_text = response.choices[0].message.content.strip()
+        # JSON 부분만 추출
+        if '{' in result_text:
+            start = result_text.index('{')
+            end = result_text.rindex('}') + 1
+            result_text = result_text[start:end]
+        
+        return json.loads(result_text)
+    except Exception as e:
+        # 오류 시 랜덤 점수 생성
+        if service_type == "couple":
+            return {
+                "total_score": random.randint(65, 90),
+                "compatibility_scores": {
+                    "성격궁합": random.randint(60, 95),
+                    "감정궁합": random.randint(60, 95),
+                    "금전궁합": random.randint(60, 95),
+                    "육체궁합": random.randint(60, 95),
+                    "미래궁합": random.randint(60, 95),
+                },
+                "person1_elements": {"木": 22, "火": 23, "土": 18, "金": 20, "水": 17},
+                "person2_elements": {"木": 20, "火": 25, "土": 15, "金": 22, "水": 18},
+            }
+        else:
+            return {
+                "total_score": random.randint(65, 90),
+                "category_scores": {
+                    "총운": random.randint(60, 95),
+                    "재물운": random.randint(60, 95),
+                    "건강운": random.randint(60, 95),
+                    "애정운": random.randint(60, 95),
+                    "직장운": random.randint(60, 95),
+                },
+                "monthly_scores": {f"{i}월": random.randint(60, 95) for i in range(1, 13)},
+                "five_elements": {"木": 22, "火": 23, "土": 18, "金": 20, "水": 17},
+            }
+
+
+def create_pdf_document(customer_name: str, chapters_content: list, templates: dict, 
+                        font_settings: dict, scores: dict = None, service_type: str = "single") -> bytes:
+    """PDF 문서 생성 (차트 포함)"""
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.units import mm
-        from reportlab.lib.colors import black
+        from reportlab.lib.colors import black, HexColor, white, lightgrey
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
         from reportlab.pdfgen import canvas
         
+        # 차트 모듈 임포트
+        try:
+            from charts import (create_pie_chart, create_radar_chart, create_line_chart,
+                              create_donut_chart, create_comparison_bar_chart,
+                              save_chart_to_temp, cleanup_temp_charts)
+            charts_available = True
+        except ImportError:
+            charts_available = False
+        
         buffer = BytesIO()
         page_width, page_height = A4
+        temp_chart_files = []
         
         # 한글 폰트 등록
         font_name = 'Helvetica'
@@ -258,6 +372,315 @@ def create_pdf_document(customer_name: str, chapters_content: list, templates: d
                         break
         except:
             pass
+        
+        # 폰트 설정
+        title_size = font_settings.get('font_size_title', 24)
+        subtitle_size = font_settings.get('font_size_subtitle', 16)
+        body_size = font_settings.get('font_size_body', 12)
+        line_height_pct = font_settings.get('line_height', 180)
+        
+        # 여백 설정
+        margin_top = font_settings.get('margin_top', 25) * mm
+        margin_bottom = font_settings.get('margin_bottom', 25) * mm
+        margin_left = font_settings.get('margin_left', 25) * mm
+        margin_right = font_settings.get('margin_right', 25) * mm
+        
+        c = canvas.Canvas(buffer, pagesize=A4)
+        
+        # 내지 배경 이미지 경로
+        bg_path = templates.get('background')
+        
+        # ========== 1. 표지 ==========
+        cover_path = templates.get('cover')
+        if cover_path and os.path.exists(cover_path):
+            try:
+                c.drawImage(cover_path, 0, 0, width=page_width, height=page_height)
+                c.setFont(font_name, title_size)
+                c.drawCentredString(page_width/2, 80, customer_name)
+            except:
+                c.setFont(font_name, title_size)
+                c.drawCentredString(page_width/2, page_height/2, customer_name)
+        else:
+            c.setFont(font_name, title_size)
+            c.drawCentredString(page_width/2, page_height/2, customer_name)
+        c.showPage()
+        
+        # ========== 2. 운세 요약 페이지 (차트) ==========
+        if scores and charts_available:
+            # 배경
+            if bg_path and os.path.exists(bg_path):
+                try:
+                    c.drawImage(bg_path, 0, 0, width=page_width, height=page_height)
+                except:
+                    pass
+            
+            y_pos = page_height - margin_top
+            
+            # 제목
+            c.setFont(font_name, subtitle_size + 2)
+            c.setFillColor(HexColor('#1F2937'))
+            
+            if service_type == "couple":
+                c.drawCentredString(page_width/2, y_pos, "💑 궁합 분석 결과")
+            else:
+                c.drawCentredString(page_width/2, y_pos, "🔮 2025년 운세 요약")
+            
+            y_pos -= 30
+            
+            # 총점 도넛차트
+            total_score = scores.get('total_score', 75)
+            donut_bytes = create_donut_chart(total_score, 100, "")
+            donut_path = save_chart_to_temp(donut_bytes, "donut")
+            temp_chart_files.append(donut_path)
+            
+            c.drawImage(donut_path, page_width/2 - 50*mm, y_pos - 90*mm, 
+                       width=100*mm, height=80*mm)
+            
+            # 총점 텍스트
+            c.setFont(font_name, 14)
+            c.setFillColor(HexColor('#6366F1'))
+            c.drawCentredString(page_width/2, y_pos - 95*mm, "종합 운세 점수")
+            
+            y_pos -= 110*mm
+            
+            # 영역별 점수 (막대그래프)
+            if service_type == "couple":
+                category_scores = scores.get('compatibility_scores', {})
+                c.setFont(font_name, 12)
+                c.setFillColor(HexColor('#374151'))
+                c.drawString(margin_left, y_pos, "📊 영역별 궁합")
+            else:
+                category_scores = scores.get('category_scores', {})
+                c.setFont(font_name, 12)
+                c.setFillColor(HexColor('#374151'))
+                c.drawString(margin_left, y_pos, "📊 영역별 운세")
+            
+            y_pos -= 20
+            
+            # 막대그래프 직접 그리기
+            bar_height = 15
+            bar_width = page_width - margin_left - margin_right - 80
+            
+            for label, value in category_scores.items():
+                # 라벨
+                c.setFont(font_name, 10)
+                c.setFillColor(HexColor('#374151'))
+                c.drawRightString(margin_left + 55, y_pos + 3, label)
+                
+                # 배경 막대
+                c.setFillColor(HexColor('#E5E7EB'))
+                c.rect(margin_left + 60, y_pos, bar_width, bar_height, fill=1, stroke=0)
+                
+                # 값 막대
+                if value >= 80:
+                    bar_color = '#10B981'
+                elif value >= 60:
+                    bar_color = '#3B82F6'
+                elif value >= 40:
+                    bar_color = '#F59E0B'
+                else:
+                    bar_color = '#EF4444'
+                
+                c.setFillColor(HexColor(bar_color))
+                c.rect(margin_left + 60, y_pos, bar_width * (value/100), bar_height, fill=1, stroke=0)
+                
+                # 값 텍스트
+                c.setFillColor(HexColor('#374151'))
+                c.setFont(font_name, 9)
+                c.drawString(margin_left + 65 + bar_width, y_pos + 3, f'{value}점')
+                
+                y_pos -= 25
+            
+            c.setFont(font_name, 10)
+            c.drawCentredString(page_width/2, 15*mm, "- 운세 요약 -")
+            c.showPage()
+            
+            # ========== 3. 상세 차트 페이지 ==========
+            if bg_path and os.path.exists(bg_path):
+                try:
+                    c.drawImage(bg_path, 0, 0, width=page_width, height=page_height)
+                except:
+                    pass
+            
+            y_pos = page_height - margin_top
+            
+            if service_type == "couple":
+                # 궁합: 오행 비교 차트
+                c.setFont(font_name, subtitle_size)
+                c.setFillColor(HexColor('#1F2937'))
+                c.drawCentredString(page_width/2, y_pos, "🌟 오행 분석")
+                y_pos -= 20
+                
+                # 두 사람 오행 파이차트
+                p1_elements = scores.get('person1_elements', {})
+                p2_elements = scores.get('person2_elements', {})
+                
+                if p1_elements:
+                    pie1_bytes = create_pie_chart(p1_elements, "고객1", figsize=(3.5, 3.5))
+                    pie1_path = save_chart_to_temp(pie1_bytes, "pie1")
+                    temp_chart_files.append(pie1_path)
+                    c.drawImage(pie1_path, margin_left, y_pos - 70*mm, width=70*mm, height=70*mm)
+                
+                if p2_elements:
+                    pie2_bytes = create_pie_chart(p2_elements, "고객2", figsize=(3.5, 3.5))
+                    pie2_path = save_chart_to_temp(pie2_bytes, "pie2")
+                    temp_chart_files.append(pie2_path)
+                    c.drawImage(pie2_path, page_width - margin_right - 70*mm, y_pos - 70*mm, 
+                               width=70*mm, height=70*mm)
+                
+                y_pos -= 85*mm
+                
+                # 궁합 레이더 차트
+                c.setFont(font_name, 12)
+                c.setFillColor(HexColor('#374151'))
+                c.drawCentredString(page_width/2, y_pos, "📈 궁합 종합 분석")
+                
+                radar_bytes = create_radar_chart(category_scores, "", figsize=(4.5, 4.5))
+                radar_path = save_chart_to_temp(radar_bytes, "radar")
+                temp_chart_files.append(radar_path)
+                c.drawImage(radar_path, page_width/2 - 45*mm, y_pos - 95*mm, 
+                           width=90*mm, height=90*mm)
+                
+            else:
+                # 1인용: 월별 운세 + 오행
+                c.setFont(font_name, subtitle_size)
+                c.setFillColor(HexColor('#1F2937'))
+                c.drawCentredString(page_width/2, y_pos, "📈 월별 운세 흐름")
+                y_pos -= 10
+                
+                # 월별 라인차트
+                monthly_scores = scores.get('monthly_scores', {})
+                if monthly_scores:
+                    line_bytes = create_line_chart(monthly_scores, "", figsize=(6.5, 2.5))
+                    line_path = save_chart_to_temp(line_bytes, "line")
+                    temp_chart_files.append(line_path)
+                    c.drawImage(line_path, margin_left, y_pos - 55*mm, 
+                               width=page_width - margin_left - margin_right, height=55*mm)
+                
+                y_pos -= 70*mm
+                
+                # 오행 밸런스
+                c.setFont(font_name, 12)
+                c.setFillColor(HexColor('#374151'))
+                c.drawString(margin_left, y_pos, "🌟 오행 밸런스")
+                
+                five_elements = scores.get('five_elements', {})
+                if five_elements:
+                    pie_bytes = create_pie_chart(five_elements, "", figsize=(3.5, 3.5))
+                    pie_path = save_chart_to_temp(pie_bytes, "pie")
+                    temp_chart_files.append(pie_path)
+                    c.drawImage(pie_path, margin_left + 10*mm, y_pos - 75*mm, 
+                               width=70*mm, height=70*mm)
+                
+                # 레이더 차트
+                c.setFont(font_name, 12)
+                c.setFillColor(HexColor('#374151'))
+                c.drawString(page_width/2 + 5*mm, y_pos, "📊 영역별 분석")
+                
+                radar_bytes = create_radar_chart(category_scores, "", figsize=(3.5, 3.5))
+                radar_path = save_chart_to_temp(radar_bytes, "radar")
+                temp_chart_files.append(radar_path)
+                c.drawImage(radar_path, page_width/2 + 5*mm, y_pos - 75*mm, 
+                           width=70*mm, height=70*mm)
+            
+            c.setFont(font_name, 10)
+            c.drawCentredString(page_width/2, 15*mm, "- 상세 분석 -")
+            c.showPage()
+        
+        # ========== 4. 본문 ==========
+        page_num = 4 if (scores and charts_available) else 2
+        
+        for idx, chapter in enumerate(chapters_content):
+            if bg_path and os.path.exists(bg_path):
+                try:
+                    c.drawImage(bg_path, 0, 0, width=page_width, height=page_height)
+                except:
+                    pass
+            
+            y_pos = page_height - margin_top
+            max_width = page_width - margin_left - margin_right
+            
+            c.setFont(font_name, subtitle_size)
+            c.setFillColor(black)
+            c.drawString(margin_left, y_pos, f"● {chapter['title']}")
+            y_pos -= subtitle_size * 2
+            
+            c.setFont(font_name, body_size)
+            line_spacing = body_size * (line_height_pct / 100)
+            
+            for para in chapter['content'].split('\n'):
+                if not para.strip():
+                    continue
+                current_line = ""
+                for char in para.strip():
+                    test_line = current_line + char
+                    if c.stringWidth(test_line, font_name, body_size) < max_width:
+                        current_line = test_line
+                    else:
+                        if current_line:
+                            if y_pos < margin_bottom + 30:
+                                c.setFont(font_name, 10)
+                                c.drawCentredString(page_width/2, 15*mm, f"- {page_num} -")
+                                c.showPage()
+                                page_num += 1
+                                if bg_path and os.path.exists(bg_path):
+                                    try:
+                                        c.drawImage(bg_path, 0, 0, width=page_width, height=page_height)
+                                    except:
+                                        pass
+                                y_pos = page_height - margin_top
+                                c.setFont(font_name, body_size)
+                            c.drawString(margin_left, y_pos, current_line)
+                            y_pos -= line_spacing
+                        current_line = char
+                if current_line:
+                    if y_pos < margin_bottom + 30:
+                        c.setFont(font_name, 10)
+                        c.drawCentredString(page_width/2, 15*mm, f"- {page_num} -")
+                        c.showPage()
+                        page_num += 1
+                        if bg_path and os.path.exists(bg_path):
+                            try:
+                                c.drawImage(bg_path, 0, 0, width=page_width, height=page_height)
+                            except:
+                                pass
+                        y_pos = page_height - margin_top
+                        c.setFont(font_name, body_size)
+                    c.drawString(margin_left, y_pos, current_line)
+                    y_pos -= line_spacing
+                y_pos -= line_spacing * 0.5
+            
+            c.setFont(font_name, 10)
+            c.drawCentredString(page_width/2, 15*mm, f"- {page_num} -")
+            c.showPage()
+            page_num += 1
+        
+        # ========== 5. 안내지 ==========
+        info_path = templates.get('info')
+        if info_path and os.path.exists(info_path):
+            try:
+                c.drawImage(info_path, 0, 0, width=page_width, height=page_height)
+            except:
+                c.setFont(font_name, title_size)
+                c.drawCentredString(page_width/2, page_height/2, "감사합니다")
+        else:
+            c.setFont(font_name, title_size)
+            c.drawCentredString(page_width/2, page_height/2, "감사합니다")
+        c.showPage()
+        
+        c.save()
+        
+        # 임시 차트 파일 정리
+        if temp_chart_files:
+            try:
+                cleanup_temp_charts(temp_chart_files)
+            except:
+                pass
+        
+        return buffer.getvalue()
+    except Exception as e:
+        st.error(f"PDF 생성 오류: {str(e)}")
+        return None
         
         # 폰트 설정
         title_size = font_settings.get('font_size_title', 24)
@@ -391,6 +814,7 @@ def generate_pdf_for_customer(customer_data: dict, service: dict, api_key: str,
                               progress_callback=None, customer_idx=None) -> bytes:
     """고객용 PDF 생성 (진행률 콜백 포함)"""
     service_id = service['id']
+    service_type = service.get('service_type', 'single')
     chapters = get_chapters_by_service(service_id)
     guidelines = get_guidelines_by_service(service_id)
     guideline_text = guidelines[0]['content'] if guidelines else "친절하고 긍정적인 톤으로 작성하세요."
@@ -411,6 +835,9 @@ def generate_pdf_for_customer(customer_data: dict, service: dict, api_key: str,
                       "font_size_body": 12, "letter_spacing": 0, "line_height": 180, "char_width": 100,
                       "margin_top": 25, "margin_bottom": 25, "margin_left": 25, "margin_right": 25}.items()}
     
+    # 점수 생성 (차트용)
+    scores = generate_scores_with_gpt(api_key, customer_data, service_type)
+    
     chapters_content = []
     total_chapters = len(chapters)
     
@@ -418,19 +845,19 @@ def generate_pdf_for_customer(customer_data: dict, service: dict, api_key: str,
         content = generate_content_with_gpt(api_key, ch['title'], guideline_text, customer_data)
         chapters_content.append({"title": ch['title'], "content": content})
         
-        # 진행률 업데이트 (챕터별)
         if progress_callback and customer_idx is not None:
             progress = (i + 1) / total_chapters
             progress_callback(customer_idx, progress)
     
-    # 표지에 이름 + "님" 표시
-    return create_pdf_document(f"{customer_name}님", chapters_content, templates, font_settings)
+    return create_pdf_document(f"{customer_name}님", chapters_content, templates, font_settings,
+                               scores=scores, service_type=service_type)
 
 
 def generate_pdf_with_progress(customer_data: dict, service: dict, api_key: str,
                                progress_bar, detail_text, custom_name: str = None) -> bytes:
     """고객용 PDF 생성 - 실시간 진행률 표시"""
     service_id = service['id']
+    service_type = service.get('service_type', 'single')
     chapters = get_chapters_by_service(service_id)
     guidelines = get_guidelines_by_service(service_id)
     guideline_text = guidelines[0]['content'] if guidelines else "친절하고 긍정적인 톤으로 작성하세요."
@@ -441,10 +868,8 @@ def generate_pdf_with_progress(customer_data: dict, service: dict, api_key: str,
     
     # 표지용 이름 결정
     if custom_name:
-        # 궁합 등 2명인 경우 직접 전달받은 이름 사용
         customer_name = custom_name
     else:
-        # 1명인 경우 데이터에서 추출
         name_col = None
         for col in ['이름', 'name', 'Name', '성명', '고객명']:
             if col in customer_data:
@@ -457,35 +882,38 @@ def generate_pdf_with_progress(customer_data: dict, service: dict, api_key: str,
                       "font_size_body": 12, "letter_spacing": 0, "line_height": 180, "char_width": 100,
                       "margin_top": 25, "margin_bottom": 25, "margin_left": 25, "margin_right": 25}.items()}
     
+    # 초기 진행률 0%
+    progress_bar.progress(0.0, text="0%")
+    detail_text.caption("📊 운세 점수 분석 중...")
+    
+    # 점수 생성 (차트용)
+    scores = generate_scores_with_gpt(api_key, customer_data, service_type)
+    progress_bar.progress(0.1, text="10%")
+    
     chapters_content = []
     total_chapters = len(chapters)
     
-    # 초기 진행률 0%
-    progress_bar.progress(0.0, text="0%")
-    detail_text.caption("준비 중...")
-    
     for i, ch in enumerate(chapters):
-        # 현재 챕터 표시
         detail_text.caption(f"📝 {ch['title']} 작성 중...")
         
         content = generate_content_with_gpt(api_key, ch['title'], guideline_text, customer_data)
         chapters_content.append({"title": ch['title'], "content": content})
         
-        # 진행률 실시간 업데이트
-        progress = (i + 1) / total_chapters
+        # 진행률 실시간 업데이트 (10% ~ 95%)
+        progress = 0.1 + (i + 1) / total_chapters * 0.85
         progress_bar.progress(progress, text=f"{int(progress * 100)}%")
-        time.sleep(0.1)  # 시각적 효과
+        time.sleep(0.1)
     
     detail_text.caption("📄 PDF 생성 중...")
     
     # 표지 이름 처리
     if custom_name:
-        # custom_name은 이미 "님" 포함 (예: "홍길동님" 또는 "홍길동님 & 김철수님")
         cover_display_name = custom_name
     else:
         cover_display_name = f"{customer_name}님"
     
-    return create_pdf_document(cover_display_name, chapters_content, templates, font_settings)
+    return create_pdf_document(cover_display_name, chapters_content, templates, font_settings, 
+                               scores=scores, service_type=service_type)
 
 # ============================================
 # 로그인 페이지

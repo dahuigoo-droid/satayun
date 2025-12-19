@@ -9,3 +9,5 @@ openpyxl
 python-dotenv
 requests
 Pillow
+matplotlib
+numpy
