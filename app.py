@@ -288,11 +288,14 @@ def render_font_settings(prefix: str, defaults: dict = None):
 # ============================================
 
 def generate_content_with_gpt(api_key: str, chapter_title: str, guideline: str, 
-                              customer_data: dict, chars_per_chapter: int = 500) -> str:
+                              customer_data: dict, chars_per_chapter: int = 500,
+                              all_chapters: list = None, current_index: int = 0) -> str:
     """GPT로 챕터 내용 생성
     
     Args:
         chars_per_chapter: 챕터당 목표 글자 수 (시스템이 자동 계산)
+        all_chapters: 전체 목차 리스트 (맥락 제공용)
+        current_index: 현재 챕터 인덱스
     """
     try:
         from openai import OpenAI
@@ -302,6 +305,21 @@ def generate_content_with_gpt(api_key: str, chapter_title: str, guideline: str,
         # max_tokens 계산 (한글 1자 ≈ 2토큰, 여유분 1.5배)
         max_tokens = min(int(chars_per_chapter * 2 * 1.5), 4000)
         
+        # 전체 목차 구조 생성
+        toc_context = ""
+        if all_chapters:
+            toc_lines = []
+            for i, ch in enumerate(all_chapters):
+                if i == current_index:
+                    toc_lines.append(f"  → {i+1}. {ch} ← [현재 작성할 챕터]")
+                else:
+                    toc_lines.append(f"     {i+1}. {ch}")
+            toc_context = f"""
+[전체 목차 구조]
+{chr(10).join(toc_lines)}
+
+"""
+        
         prompt = f"""당신은 전문 운세 작성가입니다.
 
 [고객 정보]
@@ -309,13 +327,16 @@ def generate_content_with_gpt(api_key: str, chapter_title: str, guideline: str,
 
 [작성 지침]
 {guideline}
-
-[작성할 챕터]
+{toc_context}
+[현재 작성할 챕터]
 {chapter_title}
 
 위 정보를 바탕으로 '{chapter_title}' 챕터 내용을 작성해주세요.
 
-⭐ 중요: 반드시 {chars_per_chapter}자 내외로 작성하세요. (허용 오차: ±10%)
+⭐ 중요사항:
+- 반드시 {chars_per_chapter}자 내외로 작성 (허용 오차: ±10%)
+- 챕터 제목 '{chapter_title}'에 정확히 맞는 내용만 작성
+- 다른 챕터 내용과 중복되지 않게 작성
 - 고객 정보를 반영하여 개인화된 내용
 - 긍정적이고 희망적인 톤
 - 마크다운 없이 순수 텍스트
@@ -1041,8 +1062,14 @@ def generate_pdf_for_customer(customer_data: dict, service: dict, api_key: str,
     
     chapters_content = []
     
+    # 전체 목차 제목 리스트 (GPT에게 맥락 제공용)
+    all_chapter_titles = [ch['title'] for ch in chapters]
+    
     for i, ch in enumerate(chapters):
-        content = generate_content_with_gpt(api_key, ch['title'], guideline_text, customer_data, chars_per_chapter)
+        content = generate_content_with_gpt(
+            api_key, ch['title'], guideline_text, customer_data, 
+            chars_per_chapter, all_chapter_titles, i
+        )
         chapters_content.append({"title": ch['title'], "content": content})
         
         if progress_callback and customer_idx is not None:
@@ -1112,11 +1139,17 @@ def generate_pdf_with_progress(customer_data: dict, service: dict, api_key: str,
     
     chapters_content = []
     
+    # 전체 목차 제목 리스트 (GPT에게 맥락 제공용)
+    all_chapter_titles = [ch['title'] for ch in chapters]
+    
     for i, ch in enumerate(chapters):
         detail_text.caption(f"📝 {ch['title']} 작성 중... ({chars_per_chapter:,}자)")
         
-        # 글자 수 전달하여 GPT 호출
-        content = generate_content_with_gpt(api_key, ch['title'], guideline_text, customer_data, chars_per_chapter)
+        # 글자 수 + 전체 목차 + 현재 인덱스 전달하여 GPT 호출
+        content = generate_content_with_gpt(
+            api_key, ch['title'], guideline_text, customer_data, 
+            chars_per_chapter, all_chapter_titles, i
+        )
         chapters_content.append({"title": ch['title'], "content": content})
         
         # 진행률 실시간 업데이트 (10% ~ 95%)
