@@ -403,53 +403,61 @@ def calculate_chars_per_page(font_size_body: int, line_height: int, margin_top: 
     return max(chars_per_page, 300)  # 최소 300자
 
 
+@st.fragment
 def render_font_settings(prefix: str, defaults: dict = None):
-    """폰트/여백 설정 UI"""
+    """폰트/여백 설정 UI - fragment로 분리하여 부분 리렌더링"""
     if defaults is None:
         defaults = {"font_family": "NanumGothic", "font_size_title": 24, "font_size_subtitle": 16,
                     "font_size_body": 12, "letter_spacing": 0, "line_height": 180, "char_width": 100,
                     "margin_top": 25, "margin_bottom": 25, "margin_left": 25, "margin_right": 25,
                     "target_pages": 30}
     
+    # 세션 키 (값 저장용)
+    settings_key = f"{prefix}_font_settings"
+    if settings_key not in st.session_state:
+        st.session_state[settings_key] = defaults.copy()
+    
+    saved = st.session_state[settings_key]
+    
     # 목표 페이지 설정
     st.markdown("**📄 목표 페이지 수**")
     target_cols = st.columns([2, 3])
     with target_cols[0]:
-        target_pages = st.number_input("목표 페이지", 10, 200, defaults.get("target_pages", 30), 
+        target_pages = st.number_input("목표 페이지", 10, 200, saved.get("target_pages", 30), 
                                        step=5, key=f"{prefix}_pages",
                                        help="본문 페이지 수 (표지/목차/차트 제외)")
     
     st.markdown("**🎨 폰트 설정**")
     col1, col2, col3 = st.columns(3)
     with col1:
-        font_idx = list(FONT_OPTIONS.keys()).index(defaults.get("font_family", "NanumGothic")) if defaults.get("font_family") in FONT_OPTIONS else 0
+        font_idx = list(FONT_OPTIONS.keys()).index(saved.get("font_family", "NanumGothic")) if saved.get("font_family") in FONT_OPTIONS else 0
         font_family = st.selectbox("폰트", list(FONT_OPTIONS.keys()), index=font_idx,
                                    format_func=lambda x: FONT_OPTIONS[x], key=f"{prefix}_font")
     with col2:
-        line_height = st.slider("행간 (%)", 100, 300, defaults.get("line_height", 180), 10, key=f"{prefix}_lh")
+        line_height = st.slider("행간 (%)", 100, 300, saved.get("line_height", 180), 10, key=f"{prefix}_lh")
     with col3:
-        letter_spacing = st.slider("자간 (%)", -20, 50, defaults.get("letter_spacing", 0), 5, key=f"{prefix}_ls")
+        letter_spacing = st.slider("자간 (%)", -20, 50, saved.get("letter_spacing", 0), 5, key=f"{prefix}_ls")
     
     col4, col5, col6, col7 = st.columns(4)
     with col4:
-        font_size_title = st.number_input("대제목", 16, 40, defaults.get("font_size_title", 24), key=f"{prefix}_title")
+        font_size_title = st.number_input("대제목", 16, 40, saved.get("font_size_title", 24), key=f"{prefix}_title")
     with col5:
-        font_size_subtitle = st.number_input("소제목", 12, 30, defaults.get("font_size_subtitle", 16), key=f"{prefix}_sub")
+        font_size_subtitle = st.number_input("소제목", 12, 30, saved.get("font_size_subtitle", 16), key=f"{prefix}_sub")
     with col6:
-        font_size_body = st.number_input("본문", 8, 24, defaults.get("font_size_body", 12), key=f"{prefix}_body")
+        font_size_body = st.number_input("본문", 8, 24, saved.get("font_size_body", 12), key=f"{prefix}_body")
     with col7:
-        char_width = st.slider("장평 (%)", 50, 150, defaults.get("char_width", 100), 5, key=f"{prefix}_cw")
+        char_width = st.slider("장평 (%)", 50, 150, saved.get("char_width", 100), 5, key=f"{prefix}_cw")
     
     st.markdown("**📐 여백 설정 (mm)**")
     m_cols = st.columns(4)
     with m_cols[0]:
-        margin_top = st.number_input("상단", 5, 50, defaults.get("margin_top", 25), key=f"{prefix}_mt")
+        margin_top = st.number_input("상단", 5, 50, saved.get("margin_top", 25), key=f"{prefix}_mt")
     with m_cols[1]:
-        margin_bottom = st.number_input("하단", 5, 50, defaults.get("margin_bottom", 25), key=f"{prefix}_mb")
+        margin_bottom = st.number_input("하단", 5, 50, saved.get("margin_bottom", 25), key=f"{prefix}_mb")
     with m_cols[2]:
-        margin_left = st.number_input("좌측", 5, 50, defaults.get("margin_left", 25), key=f"{prefix}_ml")
+        margin_left = st.number_input("좌측", 5, 50, saved.get("margin_left", 25), key=f"{prefix}_ml")
     with m_cols[3]:
-        margin_right = st.number_input("우측", 5, 50, defaults.get("margin_right", 25), key=f"{prefix}_mr")
+        margin_right = st.number_input("우측", 5, 50, saved.get("margin_right", 25), key=f"{prefix}_mr")
     
     # 페이지당 글자 수 계산 및 표시
     chars_per_page = calculate_chars_per_page(font_size_body, line_height, margin_top, 
@@ -457,10 +465,15 @@ def render_font_settings(prefix: str, defaults: dict = None):
     with target_cols[1]:
         st.info(f"📊 현재 설정: 페이지당 약 **{chars_per_page:,}자** | 총 **{target_pages * chars_per_page:,}자** 예상")
     
-    return {"font_family": font_family, "font_size_title": font_size_title, "font_size_subtitle": font_size_subtitle,
-            "font_size_body": font_size_body, "letter_spacing": letter_spacing, "line_height": line_height,
-            "char_width": char_width, "margin_top": margin_top, "margin_bottom": margin_bottom,
-            "margin_left": margin_left, "margin_right": margin_right, "target_pages": target_pages}
+    # 현재 값 세션에 저장
+    current_settings = {"font_family": font_family, "font_size_title": font_size_title, 
+                        "font_size_subtitle": font_size_subtitle, "font_size_body": font_size_body, 
+                        "letter_spacing": letter_spacing, "line_height": line_height,
+                        "char_width": char_width, "margin_top": margin_top, "margin_bottom": margin_bottom,
+                        "margin_left": margin_left, "margin_right": margin_right, "target_pages": target_pages}
+    st.session_state[settings_key] = current_settings
+    
+    return current_settings
 
 # ============================================
 # PDF 생성 함수
@@ -1620,33 +1633,46 @@ def show_service_edit_form(svc: dict, prefix: str):
     with col_left:
         st.markdown("**📑 목차**")
         current_chapters = "\n".join([ch['title'] for ch in chapters])
-        edit_chapters = st.text_area("목차", value=current_chapters, height=350, key=f"{prefix}_ch_{svc_id}")
+        edit_chapters = st.text_area("목차", value=current_chapters, height=300, key=f"{prefix}_ch_{svc_id}")
     with col_right:
         st.markdown("**📜 지침**")
         current_guideline = guidelines[0]['content'] if guidelines else ""
-        edit_guideline = st.text_area("지침", value=current_guideline, height=350, key=f"{prefix}_g_{svc_id}")
+        edit_guideline = st.text_area("지침", value=current_guideline, height=300, key=f"{prefix}_g_{svc_id}")
     
-    font_defaults = {k: svc.get(k, v) for k, v in 
-                     {"font_family": "NanumGothic", "font_size_title": 24, "font_size_subtitle": 16,
-                      "font_size_body": 12, "letter_spacing": 0, "line_height": 180, "char_width": 100,
-                      "margin_top": 25, "margin_bottom": 25, "margin_left": 25, "margin_right": 25,
-                      "target_pages": 30}.items()}
-    font_settings = render_font_settings(f"{prefix}_{svc_id}", font_defaults)
+    # 폰트 설정 (expander로 숨김 - 기본값 사용 권장)
+    with st.expander("⚙️ 폰트/디자인 설정", expanded=False):
+        font_defaults = {k: svc.get(k, v) for k, v in 
+                         {"font_family": "NanumGothic", "font_size_title": 24, "font_size_subtitle": 16,
+                          "font_size_body": 12, "letter_spacing": 0, "line_height": 180, "char_width": 100,
+                          "margin_top": 25, "margin_bottom": 25, "margin_left": 25, "margin_right": 25,
+                          "target_pages": 30}.items()}
+        font_settings = render_font_settings(f"{prefix}_{svc_id}", font_defaults)
+        
+        st.markdown("**🖼️ 디자인**")
+        t_cols = st.columns(3)
+        for idx, tt in enumerate(["cover", "background", "info"]):
+            with t_cols[idx]:
+                t_list = [t for t in templates if t['template_type'] == tt]
+                # 이미지 미리보기 (존재할 때만)
+                if t_list and t_list[0].get('image_path') and os.path.exists(t_list[0]['image_path']):
+                    st.image(t_list[0]['image_path'], width=60, caption=TEMPLATE_TYPES[tt])
+                st.file_uploader(TEMPLATE_TYPES[tt], type=["jpg","jpeg","png"], key=f"{prefix}_{tt}_{svc_id}")
     
-    st.markdown("**🖼️ 디자인**")
-    t_cols = st.columns(3)
-    for idx, tt in enumerate(["cover", "background", "info"]):
-        with t_cols[idx]:
-            t_list = [t for t in templates if t['template_type'] == tt]
-            if t_list and t_list[0].get('image_path') and os.path.exists(t_list[0]['image_path']):
-                st.image(t_list[0]['image_path'], width=80)
-            st.file_uploader(TEMPLATE_TYPES[tt], type=["jpg","jpeg","png"], key=f"{prefix}_{tt}_{svc_id}")
-    
+    # 저장/삭제 버튼
     col1, col2 = st.columns(2)
     with col1:
         if st.button("💾 저장", key=f"{prefix}_save_{svc_id}", type="primary", use_container_width=True):
             # 캐시 먼저 초기화 (중복 방지)
             clear_service_cache()
+            
+            # font_settings를 session_state에서 가져오기
+            settings_key = f"{prefix}_{svc_id}_font_settings"
+            font_settings = st.session_state.get(settings_key, {
+                "font_family": "NanumGothic", "font_size_title": 24, "font_size_subtitle": 16,
+                "font_size_body": 12, "letter_spacing": 0, "line_height": 180, "char_width": 100,
+                "margin_top": 25, "margin_bottom": 25, "margin_left": 25, "margin_right": 25,
+                "target_pages": 30
+            })
             
             # 기존 목차 배치 삭제
             delete_chapters_by_service(svc_id)
