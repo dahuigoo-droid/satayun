@@ -1535,7 +1535,7 @@ def show_admin_settings():
                             clear_service_cache()
                     st.success(f"'{product_name}' 등록됨!")
                     st.session_state.show_new_product = False
-                    st.rerun()
+                    # st.rerun() 대신 toast 사용 - 다음 상호작용에서 자동 반영
             st.markdown("---")
         
         st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
@@ -1620,8 +1620,9 @@ def show_admin_settings():
                 set_system_config(ConfigKeys.ADMIN_GMAIL_PASSWORD, gmail_pw)
                 st.success("저장됨")
 
+@st.fragment
 def show_service_edit_form(svc: dict, prefix: str):
-    """상품 수정 폼"""
+    """상품 수정 폼 - fragment로 부분 리렌더링"""
     svc_id = svc['id']
     chapters = cached_get_chapters(svc_id)
     guidelines = cached_get_guidelines(svc_id)
@@ -1736,8 +1737,8 @@ def show_library():
                 if ch_title and ch_content:
                     user_id = None if is_admin() else user['id']
                     add_chapter_library(ch_title, ch_content, ch_category, user_id)
-                    st.success("등록됨!")
-                    st.rerun()
+                    st.toast("등록됨!")
+                    # st.rerun() 제거 - 필터 변경하면 자동 반영
         
         st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
         
@@ -1785,8 +1786,8 @@ def show_library():
                 if g_title and g_content:
                     user_id = None if is_admin() else user['id']
                     add_guideline_library(g_title, g_content, g_category, user_id)
-                    st.success("등록됨!")
-                    st.rerun()
+                    st.toast("등록됨!")
+                    # st.rerun() 제거 - 필터 변경하면 자동 반영
         
         st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
         
@@ -2493,9 +2494,9 @@ def show_notices():
             if st.button("💾 등록", type="primary"):
                 if title and content:
                     create_notice(st.session_state.user['id'], title, content, None, pinned)
-                    st.success("등록됨!")
+                    st.toast("등록됨!")
                     clear_notice_cache()
-                    st.rerun()
+                    # st.rerun() 제거 - 다음 상호작용에서 자동 반영
     st.markdown("---")
     notices = cached_get_notices()
     if not notices:
