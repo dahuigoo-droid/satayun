@@ -119,11 +119,11 @@ def show_home():
     # 빠른 시작 버튼
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.page_link("pages/1_📦_서비스작업.py", label="📦 서비스작업", icon="📦", use_container_width=True)
+        st.page_link("pages/1_서비스작업.py", label="📦 서비스작업", icon="📦", use_container_width=True)
     with col2:
-        st.page_link("pages/2_📚_자료실.py", label="📚 자료실", icon="📚", use_container_width=True)
+        st.page_link("pages/2_자료실.py", label="📚 자료실", icon="📚", use_container_width=True)
     with col3:
-        st.page_link("pages/4_👤_내정보.py", label="👤 내정보", icon="👤", use_container_width=True)
+        st.page_link("pages/4_내정보.py", label="👤 내정보", icon="👤", use_container_width=True)
 
 # ============================================
 # 메인
