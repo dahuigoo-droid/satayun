@@ -117,6 +117,23 @@ st.markdown("""
     .stTextArea [data-testid="stTextAreaHelp"] { display: none !important; }
     .stTextArea small { display: none !important; }
     
+    /* 컴팩트 레이아웃 - 여백 최소화 */
+    .block-container { padding-top: 1rem !important; }
+    div[data-testid="stVerticalBlock"] > div { gap: 0.3rem !important; }
+    .stButton > button { padding: 0.4rem 1rem !important; min-height: 2.2rem !important; }
+    hr { margin: 0.5rem 0 !important; border-color: rgba(255,255,255,0.1) !important; }
+    
+    /* 상품 카드 컴팩트 */
+    .product-card {
+        background: linear-gradient(135deg, #1e5128 0%, #2d7a3e 100%);
+        padding: 10px 15px; border-radius: 8px; margin: 3px 0;
+        border-left: 3px solid #4CAF50;
+    }
+    .product-card-unselected {
+        padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .thin-divider { border-top: 1px solid rgba(255,255,255,0.08); margin: 5px 0; }
+    
     /* 업무 자동화 콘솔 스타일 */
     .work-step {
         background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
@@ -1835,68 +1852,50 @@ def show_service_work():
                             use_container_width=True):
                     st.session_state.individual_mode = 'create'
                     st.rerun()
-            
-            st.markdown("---")
         
         # ===== 기존 상품 선택 모드 =====
         if st.session_state.individual_mode == 'select' and my_services:
-            st.markdown("**📦 내 상품 목록**")
-            st.caption("사용할 상품을 선택하세요")
+            st.caption("📦 내 상품 목록")
             
-            # 상품 목록을 카드 형태로 표시
+            # 상품 목록을 컴팩트하게 표시
             for idx, svc in enumerate(my_services):
                 chapters = cached_get_chapters(svc['id'])
                 is_selected = st.session_state.get('selected_individual_service') == svc['id']
                 
-                # 선택된 상품은 컨테이너로 강조
+                # 선택된 상품
                 if is_selected:
-                    with st.container():
-                        st.markdown(f"""
-                        <div style="background: linear-gradient(135deg, #1e5128 0%, #2d7a3e 100%); 
-                                    padding: 15px; border-radius: 10px; margin: 5px 0;
-                                    border-left: 4px solid #4CAF50;">
-                            <span style="color: #4CAF50; font-weight: bold;">✅ 선택됨</span>
-                            <span style="color: white; font-size: 1.1rem; margin-left: 10px;">
-                                <b>{svc['name']}</b>
-                            </span>
-                            <span style="color: #aaa; margin-left: 10px;">목차 {len(chapters)}개</span>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        selected_service = svc
-                        
-                        # 수정 버튼 (선택된 상품만)
-                        with st.expander("✏️ 상품 수정", expanded=False):
-                            show_service_edit_form(svc, "my")
+                    st.markdown(f"""
+                    <div class="product-card">
+                        <span style="color: #4CAF50; font-weight: bold;">✅</span>
+                        <b style="color: white; margin-left: 8px;">{svc['name']}</b>
+                        <span style="color: #aaa; margin-left: 8px; font-size: 0.85rem;">목차 {len(chapters)}개</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    selected_service = svc
+                    with st.expander("✏️ 상품 수정", expanded=False):
+                        show_service_edit_form(svc, "my")
                 else:
-                    # 선택 안된 상품
-                    col_info, col_action = st.columns([4, 1])
+                    # 선택 안된 상품 - 한 줄 컴팩트
+                    col_info, col_action = st.columns([5, 1])
                     with col_info:
-                        st.markdown(f"""
-                        <div style="padding: 10px 0;">
-                            <span style="color: #ccc; font-size: 1rem;">
-                                <b>{svc['name']}</b>
-                            </span>
-                            <span style="color: #888; margin-left: 10px;">목차 {len(chapters)}개</span>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        st.markdown(f"**{svc['name']}** <span style='color:#888; font-size:0.85rem;'>목차 {len(chapters)}개</span>", unsafe_allow_html=True)
                     with col_action:
-                        if st.button("선택", key=f"sel_svc_{svc['id']}", type="primary", use_container_width=True):
+                        if st.button("선택", key=f"sel_svc_{svc['id']}", type="primary"):
                             st.session_state.selected_individual_service = svc['id']
                             st.rerun()
-                
-                st.markdown("---")
+                    st.markdown('<div class="thin-divider"></div>', unsafe_allow_html=True)
             
-            # 선택된 상품 가져오기 (selected_service가 설정 안된 경우)
+            # 선택된 상품 가져오기
             if st.session_state.get('selected_individual_service') and 'selected_service' not in dir():
                 for svc in my_services:
                     if svc['id'] == st.session_state.selected_individual_service:
                         selected_service = svc
                         break
             
-            # 선택 안내 (아무것도 선택 안했을 때)
+            # 선택 안내
             if not st.session_state.get('selected_individual_service'):
-                st.info("👆 위 목록에서 상품을 선택하세요")
+                st.caption("👆 상품을 선택하세요")
         
         # ===== 새 상품 만들기 모드 =====
         elif st.session_state.individual_mode == 'create' or not my_services:
