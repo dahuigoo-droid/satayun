@@ -1581,7 +1581,8 @@ def show_admin_settings():
                 with col5:
                     if st.button("💾", key=f"save_{u['id']}"):
                         update_user_settings(u['id'], new_level, new_api, new_email)
-                        st.rerun()
+                        st.toast("저장됨!")
+                        # st.rerun() 제거 - 설정 저장은 즉시 반영 불필요
                     if u['status'] == 'approved':
                         if st.button("🚫", key=f"sus_{u['id']}"):
                             suspend_user(u['id'])
@@ -1702,12 +1703,15 @@ def show_service_edit_form(svc: dict, prefix: str):
                 clear_service_cache()
                 
             st.success("저장됨!")
-            st.rerun()
+            # st.rerun() 제거 - 다음 상호작용에서 자동 반영
     with col2:
         if st.button("🗑️ 삭제", key=f"{prefix}_del_{svc_id}", use_container_width=True):
-            delete_service(svc_id)
-            clear_service_cache()
-            st.rerun()
+            with st.spinner("삭제 중..."):
+                delete_service(svc_id)
+                clear_service_cache()
+            st.success("삭제됨!")
+            time.sleep(0.5)
+            st.rerun()  # 삭제는 목록 갱신 필요
 
 # ============================================
 # 📚 자료실
@@ -1758,7 +1762,7 @@ def show_library():
                         if st.button("💾 수정", key=f"lib_ch_sv_{item['id']}"):
                             update_chapter_library(item['id'], ed_title, ed_content, ed_cat)
                             st.success("수정됨!")
-                            st.rerun()
+                            # st.rerun() 제거 - 수정은 즉시 반영 불필요
                     with col2:
                         if st.button("📋 복사", key=f"lib_ch_cp_{item['id']}"):
                             st.session_state['clipboard_chapters'] = ed_content
@@ -1806,7 +1810,7 @@ def show_library():
                         if st.button("💾 수정", key=f"lib_g_sv_{item['id']}"):
                             update_guideline_library(item['id'], ed_title, ed_content, ed_cat)
                             st.success("수정됨!")
-                            st.rerun()
+                            # st.rerun() 제거 - 수정은 즉시 반영 불필요
                     with col2:
                         if st.button("📋 복사", key=f"lib_g_cp_{item['id']}"):
                             st.session_state['clipboard_guideline'] = ed_content
@@ -2508,17 +2512,18 @@ def show_notices():
                         if st.button("💾", key=f"sv_{n['id']}"):
                             update_notice(n['id'], ed_title, ed_content)
                             clear_notice_cache()
-                            st.rerun()
+                            st.toast("수정됨!")
+                            # st.rerun() 제거 - 수정은 즉시 반영 불필요
                     with c2:
                         if st.button("📌", key=f"pn_{n['id']}"):
                             toggle_pin_notice(n['id'])
                             clear_notice_cache()
-                            st.rerun()
+                            st.rerun()  # 고정 상태 변경은 목록 순서 변경 필요
                     with c3:
                         if st.button("🗑️", key=f"dl_{n['id']}"):
                             delete_notice(n['id'])
                             clear_notice_cache()
-                            st.rerun()
+                            st.rerun()  # 삭제는 목록 갱신 필요
                 else:
                     st.write(n['content'])
 
