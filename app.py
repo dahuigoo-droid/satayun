@@ -116,6 +116,39 @@ st.markdown("""
     /* text_area 힌트(Press Ctrl+Enter) 숨기기 */
     .stTextArea [data-testid="stTextAreaHelp"] { display: none !important; }
     .stTextArea small { display: none !important; }
+    
+    /* 업무 자동화 콘솔 스타일 */
+    .work-step {
+        background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
+        padding: 15px 20px; border-radius: 12px; margin: 10px 0;
+        border-left: 4px solid #4CAF50;
+    }
+    .work-step-inactive {
+        background: #2d2d2d; padding: 15px 20px; border-radius: 12px; margin: 10px 0;
+        border-left: 4px solid #666; opacity: 0.6;
+    }
+    .work-step-title { font-size: 1.1rem; font-weight: bold; color: #fff; margin-bottom: 5px; }
+    .work-step-desc { font-size: 0.9rem; color: #aaa; }
+    
+    .progress-card {
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        padding: 20px; border-radius: 12px; text-align: center; margin: 10px 0;
+    }
+    .progress-number { font-size: 2.5rem; font-weight: bold; color: #4CAF50; }
+    .progress-label { font-size: 0.9rem; color: #888; margin-top: 5px; }
+    .progress-time { font-size: 0.85rem; color: #666; margin-top: 8px; }
+    
+    .status-success { color: #4CAF50; }
+    .status-processing { color: #FFC107; }
+    .status-error { color: #f44336; font-weight: bold; }
+    
+    .error-card {
+        background: linear-gradient(135deg, #5c1a1a 0%, #3d1212 100%);
+        padding: 15px; border-radius: 8px; margin: 5px 0;
+        border-left: 4px solid #f44336;
+    }
+    .error-title { color: #f44336; font-weight: bold; }
+    .error-action { color: #ffcdd2; font-size: 0.9rem; margin-top: 5px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -128,10 +161,76 @@ defaults = {
     'completed_customers': {}, 'generated_pdfs': {}, 'selected_customers': set(),
     'input_mode': 'excel', 'manual_completed': False, 'manual_pdf': None,
     'pdf_hashes': {},  # 멱등성: 생성된 PDF 해시 저장
+    # 업무 자동화 콘솔 상태
+    'work_processing': False,  # 처리 중 여부
+    'work_errors': [],  # 실패 목록
+    'work_start_time': None,  # 시작 시간
 }
 for key, val in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = val
+
+
+# ============================================
+# 업무 자동화 콘솔 유틸리티
+# ============================================
+
+def render_progress_card(completed: int, total: int, current_task: str = ""):
+    """진행 상태 카드 렌더링 (업무 자동화 콘솔용)"""
+    # 예상 소요 시간 계산 (1건당 약 60초)
+    remaining = total - completed
+    est_minutes = remaining * 1  # 1분/건 (병렬 처리 후)
+    
+    if est_minutes > 0:
+        time_text = f"예상 남은 시간: 약 {est_minutes}분"
+    else:
+        time_text = "곧 완료됩니다"
+    
+    st.markdown(f"""
+    <div class="progress-card">
+        <div class="progress-number">{completed} / {total}</div>
+        <div class="progress-label">처리 완료</div>
+        <div class="progress-time">{time_text}</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    if current_task:
+        st.caption(f"📝 현재: {current_task}")
+
+
+def render_error_card(customer_name: str, error_msg: str):
+    """에러 카드 렌더링 (실패만 강조)"""
+    # 기술 용어를 사용자 친화적으로 변환
+    user_friendly_msg = error_msg
+    if "API" in error_msg or "key" in error_msg.lower():
+        user_friendly_msg = "API 연결에 문제가 있습니다"
+        action = "관리자에게 API 키 확인을 요청하세요"
+    elif "timeout" in error_msg.lower():
+        user_friendly_msg = "처리 시간이 초과되었습니다"
+        action = "잠시 후 다시 시도해 주세요"
+    elif "network" in error_msg.lower() or "connection" in error_msg.lower():
+        user_friendly_msg = "네트워크 연결에 문제가 있습니다"
+        action = "인터넷 연결을 확인 후 다시 시도해 주세요"
+    else:
+        action = "이 주문은 재시도가 필요합니다"
+    
+    st.markdown(f"""
+    <div class="error-card">
+        <div class="error-title">❌ {customer_name}</div>
+        <div class="error-action">{action}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_work_step(step_num: int, title: str, description: str, is_active: bool = True):
+    """워크플로우 단계 렌더링"""
+    css_class = "work-step" if is_active else "work-step-inactive"
+    st.markdown(f"""
+    <div class="{css_class}">
+        <div class="work-step-title">STEP {step_num}. {title}</div>
+        <div class="work-step-desc">{description}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ============================================
 # 폰트 전역 캐싱 (한 번만 등록)
@@ -1856,105 +1955,93 @@ def show_service_work():
             
             st.markdown("---")
             
-            # 전체 선택 + 초기화
-            col_ctrl1, col_ctrl2, col_ctrl3 = st.columns([1, 1, 1])
-            with col_ctrl1:
-                if st.button("✅ 전체 선택", use_container_width=True):
-                    st.session_state.selected_customers = set(range(len(df)))
-                    st.rerun()
-            with col_ctrl2:
-                if st.button("⬜ 전체 해제", use_container_width=True):
-                    st.session_state.selected_customers = set()
-                    st.rerun()
-            with col_ctrl3:
-                if st.button("🔄 초기화", use_container_width=True):
-                    # 모든 엑셀 관련 세션 완전 삭제
+            # ===== 업무 자동화 콘솔: 간소화된 UI =====
+            # 요약 정보만 표시 (개별 선택 제거)
+            total_count = len(df)
+            completed_count = len(st.session_state.completed_customers)
+            pending_count = total_count - completed_count
+            
+            # 진행 상태 카드
+            col_stat1, col_stat2, col_stat3 = st.columns(3)
+            with col_stat1:
+                st.metric("📊 전체", f"{total_count}건")
+            with col_stat2:
+                st.metric("✅ 완료", f"{completed_count}건")
+            with col_stat3:
+                st.metric("⏳ 대기", f"{pending_count}건", delta=f"-{completed_count}" if completed_count > 0 else None)
+            
+            # 초기화 버튼만 (작은 크기)
+            col_reset = st.columns([3, 1])
+            with col_reset[1]:
+                if st.button("🔄 초기화", use_container_width=True, disabled=st.session_state.get('work_processing', False)):
                     st.session_state.customers_df = None
                     st.session_state.completed_customers = {}
                     st.session_state.generated_pdfs = {}
                     st.session_state.selected_customers = set()
                     st.session_state.input_mode = None
-                    # 체크박스 키들도 삭제
-                    keys_to_delete = [k for k in st.session_state.keys() if k.startswith('chk_')]
-                    for k in keys_to_delete:
-                        del st.session_state[k]
+                    st.session_state.work_errors = []
                     st.rerun()
             
             st.markdown("---")
             
-            # 헤더
-            header_cols = st.columns([0.5, 2.5, 2, 1, 1])
-            header_cols[0].markdown("**선택**")
-            header_cols[1].markdown("**이름**")
-            header_cols[2].markdown("**상태**")
-            header_cols[3].markdown("**완료**")
-            header_cols[4].markdown("**다운**")
-            
-            for idx, row in df.iterrows():
-                # 컬럼 유형에 따른 이름 표시
-                if is_couple:
-                    cust_name1 = row.get(name1_col, "고객1") if name1_col else "고객1"
-                    cust_name2 = row.get(name2_col, "고객2") if name2_col else "고객2"
-                    display_name = f"{cust_name1} & {cust_name2}"
-                else:
-                    display_name = row.get(name_col, "고객") if name_col else "고객"
-                
-                is_done = idx in st.session_state.completed_customers
-                
-                col0, col1, col2, col3, col4 = st.columns([0.5, 2.5, 2, 1, 1])
-                
-                with col0:
-                    checked = st.checkbox("", value=idx in st.session_state.selected_customers,
-                                         key=f"chk_{idx}", label_visibility="collapsed")
-                    if checked:
-                        st.session_state.selected_customers.add(idx)
-                    else:
-                        st.session_state.selected_customers.discard(idx)
-                
-                with col1:
-                    st.write(f"**{display_name}**")
-                
-                with col2:
-                    if is_done:
-                        st.progress(1.0, text="100%")
-                    else:
-                        st.progress(0.0, text="대기")
-                
-                with col3:
-                    if is_done:
-                        st.markdown("✅")
-                
-                with col4:
-                    if is_done:
-                        pdf_data = st.session_state.generated_pdfs.get(idx)
-                        if pdf_data:
-                            # 파일명 결정
+            # 결과 테이블 (간소화 - 완료/실패만 표시)
+            if completed_count > 0 or st.session_state.get('work_errors'):
+                with st.expander(f"📋 처리 결과 ({completed_count}건 완료)", expanded=False):
+                    # 완료된 항목
+                    for idx in st.session_state.completed_customers:
+                        if idx < len(df):
+                            row = df.iloc[idx]
                             if is_couple:
+                                cust_name1 = row.get(name1_col, "고객1") if name1_col else "고객1"
+                                cust_name2 = row.get(name2_col, "고객2") if name2_col else "고객2"
+                                display_name = f"{cust_name1} & {cust_name2}"
                                 filename = f"{cust_name1}_{cust_name2}_궁합.pdf"
                             else:
+                                display_name = row.get(name_col, "고객") if name_col else "고객"
                                 filename = f"{display_name}_운세.pdf"
-                            st.download_button("⬇️", pdf_data, filename,
-                                              "application/pdf", key=f"dl_{idx}")
+                            
+                            col_name, col_dl = st.columns([3, 1])
+                            col_name.markdown(f"✅ **{display_name}**")
+                            pdf_data = st.session_state.generated_pdfs.get(idx)
+                            if pdf_data:
+                                col_dl.download_button("⬇️", pdf_data, filename, "application/pdf", key=f"dl_{idx}")
+                    
+                    # 실패한 항목 (강조 표시)
+                    for err in st.session_state.get('work_errors', []):
+                        render_error_card(err.get('name', '알 수 없음'), err.get('error', '오류 발생'))
             
             st.markdown("---")
             
-            pending_selected = [i for i in st.session_state.selected_customers
-                              if i not in st.session_state.completed_customers]
+            # ===== 핵심 버튼 1개: 전체 생성 시작 =====
+            is_processing = st.session_state.get('work_processing', False)
             
-            st.info(f"📊 선택: {len(st.session_state.selected_customers)}건 | 완료: {len(st.session_state.completed_customers)}/{len(df)}")
-            
-            if st.button(f"🚀 선택한 {len(pending_selected)}건 PDF 생성", type="primary", use_container_width=True):
-                if not pending_selected:
-                    st.warning("생성할 고객을 선택하세요.")
-                else:
-                    status_area = st.empty()
-                    current_progress_bar = st.empty()
-                    current_detail = st.empty()
+            if pending_count > 0:
+                # 예상 시간 안내
+                est_minutes = pending_count * 1  # 병렬 처리 후 약 1분/건
+                st.caption(f"⏱️ 예상 소요 시간: 약 {est_minutes}분 ({pending_count}건 × 1분)")
+                
+                # 전체 생성 버튼 (처리 중이면 비활성화)
+                button_text = "⏳ 처리 중..." if is_processing else f"🚀 전체 {pending_count}건 생성 시작"
+                
+                if st.button(button_text, type="primary", use_container_width=True, disabled=is_processing):
+                    st.session_state.work_processing = True
+                    st.session_state.work_errors = []
+                    st.session_state.work_start_time = time.time()
                     
-                    for i, idx in enumerate(pending_selected):
+                    # 전체 고객 자동 선택 (개별 선택 없음)
+                    pending_indices = [i for i in range(len(df)) if i not in st.session_state.completed_customers]
+                    
+                    # 진행 상태 영역
+                    progress_container = st.container()
+                    with progress_container:
+                        status_area = st.empty()
+                        progress_card_area = st.empty()
+                        current_detail = st.empty()
+                    
+                    for i, idx in enumerate(pending_indices):
                         row = df.iloc[idx]
                         
-                        # 컬럼 유형에 따른 이름 및 표지 이름 결정
+                        # 이름 결정
                         if is_couple:
                             cust_name1 = row.get(name1_col, "고객1") if name1_col else "고객1"
                             cust_name2 = row.get(name2_col, "고객2") if name2_col else "고객2"
@@ -1966,43 +2053,73 @@ def show_service_work():
                             cover_name = f"{display_name}님"
                             current_svc_type = "single"
                         
-                        # 멱등성 체크: 동일 주문 재실행 방지
+                        # 진행 상태 표시 (업무 자동화 콘솔 스타일)
+                        with progress_card_area:
+                            render_progress_card(i, len(pending_indices), display_name)
+                        current_detail.caption(f"📝 {display_name} - GPT 생성 중...")
+                        
+                        # 멱등성 체크
                         order_hash = generate_order_hash(row.to_dict(), selected_service['id'])
                         if is_already_generated(order_hash):
                             cached_pdf = st.session_state.pdf_hashes.get(order_hash)
                             if cached_pdf:
                                 st.session_state.completed_customers[idx] = True
                                 st.session_state.generated_pdfs[idx] = cached_pdf
-                                st.toast(f"⚡ {display_name} 캐시에서 불러옴!")
                                 continue
                         
-                        status_area.markdown(f"### 📝 {display_name} 생성 중... ({i+1}/{len(pending_selected)})")
-                        
-                        # 서비스에 현재 유형 임시 설정
-                        temp_service = selected_service.copy()
-                        temp_service['service_type'] = current_svc_type
-                        
-                        pdf_bytes = generate_pdf_with_progress(
-                            row.to_dict(), temp_service, api_key,
-                            current_progress_bar, current_detail,
-                            custom_name=cover_name
-                        )
-                        
-                        if pdf_bytes:
-                            st.session_state.completed_customers[idx] = True
-                            st.session_state.generated_pdfs[idx] = pdf_bytes
-                            mark_as_generated(order_hash, pdf_bytes)  # 캐시에 저장
-                            st.toast(f"🔔 {display_name} 완료!")
-                        
-                        current_progress_bar.progress(1.0, text="100% 완료")
-                        time.sleep(0.3)
+                        try:
+                            # 서비스 설정
+                            temp_service = selected_service.copy()
+                            temp_service['service_type'] = current_svc_type
+                            
+                            # PDF 생성 (진행률은 내부에서 처리)
+                            current_progress_bar = st.empty()
+                            pdf_bytes = generate_pdf_with_progress(
+                                row.to_dict(), temp_service, api_key,
+                                current_progress_bar, current_detail,
+                                custom_name=cover_name
+                            )
+                            current_progress_bar.empty()
+                            
+                            if pdf_bytes:
+                                st.session_state.completed_customers[idx] = True
+                                st.session_state.generated_pdfs[idx] = pdf_bytes
+                                mark_as_generated(order_hash, pdf_bytes)
+                                # 성공은 조용히 (토스트만)
+                            else:
+                                # 실패 기록
+                                st.session_state.work_errors.append({
+                                    'name': display_name,
+                                    'error': 'PDF 생성 실패'
+                                })
+                        except Exception as e:
+                            # 실패 기록 (사용자 친화적 메시지)
+                            st.session_state.work_errors.append({
+                                'name': display_name,
+                                'error': str(e)
+                            })
                     
-                    status_area.markdown("### ✅ 모든 PDF 생성 완료!")
-                    current_progress_bar.empty()
-                    current_detail.empty()
-                    st.balloons()
+                    # 완료 처리
+                    st.session_state.work_processing = False
+                    
+                    # 결과 표시
+                    with progress_card_area:
+                        render_progress_card(len(pending_indices), len(pending_indices), "완료!")
+                    
+                    # 실패가 있으면 강조
+                    if st.session_state.work_errors:
+                        status_area.error(f"⚠️ {len(st.session_state.work_errors)}건 처리 실패 - 아래 목록 확인")
+                        for err in st.session_state.work_errors:
+                            render_error_card(err['name'], err['error'])
+                    else:
+                        status_area.success("✅ 모든 처리가 완료되었습니다")
+                    
                     time.sleep(1)
                     st.rerun()
+            else:
+                if completed_count > 0:
+                    st.success("✅ 모든 고객 처리가 완료되었습니다")
+                    st.caption("위 '처리 결과'에서 PDF를 다운로드하세요")
     
     # ===== 직접 입력 방식 =====
     else:
