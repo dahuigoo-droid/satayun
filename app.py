@@ -165,6 +165,9 @@ defaults = {
     'work_processing': False,  # 처리 중 여부
     'work_errors': [],  # 실패 목록
     'work_start_time': None,  # 시작 시간
+    # 개별상품 상태
+    'individual_mode': 'select',  # 'select' 또는 'create'
+    'selected_individual_service': None,  # 선택된 개별상품 ID
 }
 for key, val in defaults.items():
     if key not in st.session_state:
@@ -1813,65 +1816,130 @@ def show_service_work():
         st.markdown('<span class="section-title">2️⃣ 개별상품</span>', unsafe_allow_html=True)
         my_services = cached_get_user_services(user['id'])
         
-        if my_services:
-            my_names = ["➕ 새로 만들기"] + [s['name'] for s in my_services]
-            selected_idx = st.selectbox("내 상품 목록", range(len(my_names)), 
-                                       format_func=lambda x: my_names[x], key="my_svc")
-            
-            if selected_idx > 0:
-                selected_service = my_services[selected_idx - 1]
-                if selected_service:
-                    chapters = cached_get_chapters(selected_service['id'])
-                    st.success(f"✅ '{selected_service['name']}' 선택됨 (목차 {len(chapters)}개)")
-                    with st.expander("✏️ 상품 수정", expanded=False):
-                        show_service_edit_form(selected_service, "my")
-            else:
-                selected_idx = 0
-        else:
-            selected_idx = 0
+        # 세션 상태 초기화
+        if 'individual_mode' not in st.session_state:
+            st.session_state.individual_mode = 'select' if my_services else 'create'
         
-        if not my_services or selected_idx == 0:
-            with st.expander("➕ 개별상품 만들기", expanded=True):
-                my_name = st.text_input("상품명", key="my_prod")
+        # 기존 상품 있으면 선택/새로 만들기 버튼 표시
+        if my_services:
+            col_select, col_create = st.columns(2)
+            with col_select:
+                if st.button("📋 기존 상품 선택", 
+                            type="primary" if st.session_state.individual_mode == 'select' else "secondary",
+                            use_container_width=True):
+                    st.session_state.individual_mode = 'select'
+                    st.rerun()
+            with col_create:
+                if st.button("➕ 새 상품 만들기",
+                            type="primary" if st.session_state.individual_mode == 'create' else "secondary",
+                            use_container_width=True):
+                    st.session_state.individual_mode = 'create'
+                    st.rerun()
+            
+            st.markdown("---")
+        
+        # ===== 기존 상품 선택 모드 =====
+        if st.session_state.individual_mode == 'select' and my_services:
+            st.markdown("**📦 내 상품 목록**")
+            
+            # 상품 목록을 카드 형태로 표시
+            for idx, svc in enumerate(my_services):
+                chapters = cached_get_chapters(svc['id'])
                 
+                col_info, col_action = st.columns([4, 1])
+                with col_info:
+                    st.markdown(f"**{svc['name']}** (목차 {len(chapters)}개)")
+                with col_action:
+                    if st.button("선택", key=f"sel_svc_{svc['id']}", use_container_width=True):
+                        st.session_state.selected_individual_service = svc['id']
+                        st.rerun()
+                
+                # 선택된 상품이면 수정 폼 표시
+                if st.session_state.get('selected_individual_service') == svc['id']:
+                    selected_service = svc
+                    st.success(f"✅ '{svc['name']}' 선택됨")
+                    with st.expander("✏️ 상품 수정", expanded=False):
+                        show_service_edit_form(svc, "my")
+                
+                st.markdown("---")
+            
+            # 선택된 상품 가져오기
+            if st.session_state.get('selected_individual_service'):
+                for svc in my_services:
+                    if svc['id'] == st.session_state.selected_individual_service:
+                        selected_service = svc
+                        break
+        
+        # ===== 새 상품 만들기 모드 =====
+        elif st.session_state.individual_mode == 'create' or not my_services:
+            st.markdown("**➕ 새 상품 만들기**")
+            
+            my_name = st.text_input("상품명", key="my_prod", placeholder="예: 2025 신년운세")
+            
+            if my_name:  # 상품명 입력 후 나머지 필드 표시
                 col_left, col_right = st.columns(2)
                 with col_left:
-                    st.markdown("**📑 목차**")
-                    my_chapters = st.text_area("목차", height=350, key="my_ch")
+                    st.markdown("**📑 목차** (줄바꿈으로 구분)")
+                    my_chapters = st.text_area("목차", height=300, key="my_ch", 
+                                               placeholder="1. 총운\n2. 재물운\n3. 건강운")
                 with col_right:
-                    st.markdown("**📜 지침**")
-                    my_guide = st.text_area("지침", height=350, key="my_g")
+                    st.markdown("**📜 AI 작성 지침**")
+                    my_guide = st.text_area("지침", height=300, key="my_g",
+                                           placeholder="고객 정보를 바탕으로 긍정적인 톤으로 작성...")
                 
-                font_settings = render_font_settings("new_my")
+                with st.expander("⚙️ 폰트/디자인 설정", expanded=False):
+                    font_settings = render_font_settings("new_my")
+                    
+                    st.markdown("**🖼️ 디자인**")
+                    d_cols = st.columns(3)
+                    with d_cols[0]:
+                        my_cover = st.file_uploader("📕 표지", type=["jpg","jpeg","png"], key="my_cover")
+                    with d_cols[1]:
+                        my_bg = st.file_uploader("📄 내지", type=["jpg","jpeg","png"], key="my_bg")
+                    with d_cols[2]:
+                        my_info = st.file_uploader("📋 안내지", type=["jpg","jpeg","png"], key="my_info")
                 
-                st.markdown("**🖼️ 디자인**")
-                d_cols = st.columns(3)
-                with d_cols[0]:
-                    my_cover = st.file_uploader("표지", type=["jpg","jpeg","png"], key="my_cover")
-                with d_cols[1]:
-                    my_bg = st.file_uploader("내지", type=["jpg","jpeg","png"], key="my_bg")
-                with d_cols[2]:
-                    my_info = st.file_uploader("안내지", type=["jpg","jpeg","png"], key="my_info")
+                st.markdown("---")
                 
-                if st.button("💾 저장", type="primary", use_container_width=True):
-                    if my_name and my_chapters:
+                # 저장 버튼 (조건 충족 시만)
+                can_save = my_name.strip() and st.session_state.get('my_ch', '').strip()
+                
+                if can_save:
+                    if st.button("💾 상품 저장", type="primary", use_container_width=True):
+                        my_chapters = st.session_state.get('my_ch', '')
+                        my_guide = st.session_state.get('my_g', '')
+                        font_settings = render_font_settings("new_my") if 'font_settings' not in dir() else font_settings
+                        
                         result = add_service(my_name, "", user['id'], **font_settings)
                         if result.get("success"):
                             svc_id = result["id"]
-                            # 배치 처리로 한 번에 추가
                             chapter_list = [ch.strip() for ch in my_chapters.strip().split("\n") if ch.strip()]
                             add_chapters_bulk(svc_id, chapter_list)
                             if my_guide:
                                 add_guideline(svc_id, f"{my_name} 지침", my_guide)
+                            
+                            # 이미지 업로드 처리
+                            my_cover = st.session_state.get('my_cover')
+                            my_bg = st.session_state.get('my_bg')
+                            my_info = st.session_state.get('my_info')
+                            
                             if my_cover:
                                 add_template(svc_id, "cover", "표지", save_uploaded_file(my_cover, f"{my_name}_cover"))
                             if my_bg:
                                 add_template(svc_id, "background", "내지", save_uploaded_file(my_bg, f"{my_name}_bg"))
                             if my_info:
                                 add_template(svc_id, "info", "안내지", save_uploaded_file(my_info, f"{my_name}_info"))
-                            st.success("저장됨!")
+                            
+                            st.success(f"✅ '{my_name}' 저장됨!")
                             clear_service_cache()
+                            st.session_state.individual_mode = 'select'
+                            st.session_state.selected_individual_service = svc_id
                             st.rerun()
+                else:
+                    st.button("💾 상품 저장", type="secondary", use_container_width=True, disabled=True)
+                    st.caption("⚠️ 상품명과 목차를 입력하세요")
+            else:
+                st.info("👆 상품명을 먼저 입력하세요")
     
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
     
