@@ -1448,10 +1448,13 @@ def show_main_app():
         
         st.markdown("---")
         
-        menu = []
+        # 메뉴 순서: 공지사항 → 기성상품등록(관리자) → 서비스작업 → 자료실 → MyPage → 관리자설정(관리자)
+        menu = ["📢 공지사항"]
+        if user['is_admin']:
+            menu.append("📦 기성상품 등록")
+        menu.extend(["🔧 서비스 작업", "📚 자료실", "👤 MyPage"])
         if user['is_admin']:
             menu.append("⚙️ 관리자 설정")
-        menu.extend(["📦 서비스 작업", "📚 자료실", "👤 MyPage", "📢 공지사항"])
         
         selected = st.radio("메뉴", menu, label_visibility="collapsed")
         
@@ -1461,16 +1464,90 @@ def show_main_app():
                 del st.session_state[key]
             st.rerun()
     
-    if selected == "⚙️ 관리자 설정":
-        show_admin_settings()
-    elif selected == "📦 서비스 작업":
+    if selected == "📢 공지사항":
+        show_notices()
+    elif selected == "📦 기성상품 등록":
+        show_product_registration()
+    elif selected == "🔧 서비스 작업":
         show_service_work()
     elif selected == "📚 자료실":
         show_library()
     elif selected == "👤 MyPage":
         show_mypage()
-    elif selected == "📢 공지사항":
-        show_notices()
+    elif selected == "⚙️ 관리자 설정":
+        show_admin_settings()
+
+# ============================================
+# 📦 기성상품 등록 (별도 메뉴)
+# ============================================
+
+def show_product_registration():
+    st.title("📦 기성상품 등록")
+    
+    # 새 상품 등록 토글
+    if 'show_new_product' not in st.session_state:
+        st.session_state.show_new_product = False
+    
+    if st.button("➕ 새 기성상품 등록" if not st.session_state.show_new_product else "➖ 접기"):
+        st.session_state.show_new_product = not st.session_state.show_new_product
+        st.rerun()
+    
+    if st.session_state.show_new_product:
+        st.markdown("---")
+        product_name = st.text_input("상품명", key="new_prod")
+        
+        # 목차/지침 좌우 배치
+        col_left, col_right = st.columns(2)
+        with col_left:
+            st.markdown("**📑 목차** (줄바꿈 구분)")
+            new_chapters = st.text_area("목차", height=500, key="new_ch", placeholder="1. 총운\n2. 재물운\n3. 건강운")
+        with col_right:
+            st.markdown("**📜 AI 작성 지침**")
+            new_guideline = st.text_area("지침", height=500, key="new_g", placeholder="- 긍정적 톤\n- 300자 이상")
+        
+        font_settings = render_font_settings("new_admin")
+        
+        st.markdown("**🖼️ 디자인**")
+        d_cols = st.columns(3)
+        with d_cols[0]:
+            cover = st.file_uploader("📕 표지", type=["jpg","jpeg","png"], key="new_cover")
+        with d_cols[1]:
+            bg = st.file_uploader("📄 내지", type=["jpg","jpeg","png"], key="new_bg")
+        with d_cols[2]:
+            info = st.file_uploader("📋 안내지", type=["jpg","jpeg","png"], key="new_info")
+        
+        if st.button("💾 기성상품 등록", type="primary", use_container_width=True):
+            if product_name:
+                with st.spinner("등록 중..."):
+                    result = add_service(product_name, "", None, **font_settings)
+                    if result.get("success"):
+                        svc_id = result["id"]
+                        if new_chapters:
+                            chapter_list = [ch.strip() for ch in new_chapters.strip().split("\n") if ch.strip()]
+                            add_chapters_bulk(svc_id, chapter_list)
+                        if new_guideline:
+                            add_guideline(svc_id, f"{product_name} 지침", new_guideline)
+                        if cover:
+                            add_template(svc_id, "cover", "표지", save_uploaded_file(cover, f"{product_name}_cover"))
+                        if bg:
+                            add_template(svc_id, "background", "내지", save_uploaded_file(bg, f"{product_name}_bg"))
+                        if info:
+                            add_template(svc_id, "info", "안내지", save_uploaded_file(info, f"{product_name}_info"))
+                        clear_service_cache()
+                st.success(f"'{product_name}' 등록됨!")
+                st.session_state.show_new_product = False
+        st.markdown("---")
+    
+    st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+    st.markdown("**등록된 기성상품**")
+    
+    services = cached_get_admin_services()
+    if not services:
+        st.info("등록된 기성상품이 없습니다.")
+    else:
+        for svc in services:
+            with st.expander(f"📌 {svc['name']}"):
+                show_service_edit_form(svc, "admin")
 
 # ============================================
 # ⚙️ 관리자 설정
@@ -1478,78 +1555,9 @@ def show_main_app():
 
 def show_admin_settings():
     st.title("⚙️ 관리자 설정")
-    tab1, tab2, tab3 = st.tabs(["📦 기성상품 등록", "👥 회원관리", "🔑 API/이메일"])
+    tab1, tab2 = st.tabs(["👥 회원관리", "🔑 API/이메일"])
     
     with tab1:
-        st.markdown('<span class="section-title">📦 기성상품 등록</span>', unsafe_allow_html=True)
-        
-        # 새 상품 등록 토글
-        if 'show_new_product' not in st.session_state:
-            st.session_state.show_new_product = False
-        
-        if st.button("➕ 새 기성상품 등록" if not st.session_state.show_new_product else "➖ 접기"):
-            st.session_state.show_new_product = not st.session_state.show_new_product
-            st.rerun()
-        
-        if st.session_state.show_new_product:
-            st.markdown("---")
-            product_name = st.text_input("상품명", key="new_prod")
-            
-            # 목차/지침 좌우 배치
-            col_left, col_right = st.columns(2)
-            with col_left:
-                st.markdown("**📑 목차** (줄바꿈 구분)")
-                new_chapters = st.text_area("목차", height=500, key="new_ch", placeholder="1. 총운\n2. 재물운\n3. 건강운")
-            with col_right:
-                st.markdown("**📜 AI 작성 지침**")
-                new_guideline = st.text_area("지침", height=500, key="new_g", placeholder="- 긍정적 톤\n- 300자 이상")
-            
-            font_settings = render_font_settings("new_admin")
-            
-            st.markdown("**🖼️ 디자인**")
-            d_cols = st.columns(3)
-            with d_cols[0]:
-                cover = st.file_uploader("📕 표지", type=["jpg","jpeg","png"], key="new_cover")
-            with d_cols[1]:
-                bg = st.file_uploader("📄 내지", type=["jpg","jpeg","png"], key="new_bg")
-            with d_cols[2]:
-                info = st.file_uploader("📋 안내지", type=["jpg","jpeg","png"], key="new_info")
-            
-            if st.button("💾 기성상품 등록", type="primary", use_container_width=True):
-                if product_name:
-                    with st.spinner("등록 중..."):
-                        result = add_service(product_name, "", None, **font_settings)
-                        if result.get("success"):
-                            svc_id = result["id"]
-                            if new_chapters:
-                                chapter_list = [ch.strip() for ch in new_chapters.strip().split("\n") if ch.strip()]
-                                add_chapters_bulk(svc_id, chapter_list)
-                            if new_guideline:
-                                add_guideline(svc_id, f"{product_name} 지침", new_guideline)
-                            if cover:
-                                add_template(svc_id, "cover", "표지", save_uploaded_file(cover, f"{product_name}_cover"))
-                            if bg:
-                                add_template(svc_id, "background", "내지", save_uploaded_file(bg, f"{product_name}_bg"))
-                            if info:
-                                add_template(svc_id, "info", "안내지", save_uploaded_file(info, f"{product_name}_info"))
-                            clear_service_cache()
-                    st.success(f"'{product_name}' 등록됨!")
-                    st.session_state.show_new_product = False
-                    # st.rerun() 대신 toast 사용 - 다음 상호작용에서 자동 반영
-            st.markdown("---")
-        
-        st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
-        st.markdown("**등록된 기성상품**")
-        
-        services = cached_get_admin_services()
-        if not services:
-            st.info("등록된 기성상품이 없습니다.")
-        else:
-            for svc in services:
-                with st.expander(f"📌 {svc['name']}"):
-                    show_service_edit_form(svc, "admin")
-    
-    with tab2:
         st.markdown('<span class="section-title">👥 회원 관리</span>', unsafe_allow_html=True)
         st.markdown("**1단계**: 기성상품만 | **2단계**: 개별상품만 | **3단계**: 둘 다")
         st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
@@ -1604,7 +1612,7 @@ def show_admin_settings():
                     approve_user(u['id'])
                     st.rerun()
     
-    with tab3:
+    with tab2:
         st.markdown('<span class="section-title">🔑 관리자 API/이메일</span>', unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         with col1:
