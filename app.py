@@ -1517,25 +1517,25 @@ def show_admin_settings():
             
             if st.button("💾 기성상품 등록", type="primary", use_container_width=True):
                 if product_name:
-                    result = add_service(product_name, "", None, **font_settings)
-                    if result.get("success"):
-                        svc_id = result["id"]
-                        if new_chapters:
-                            # 배치 처리로 한 번에 추가 (속도 개선)
-                            chapter_list = [ch.strip() for ch in new_chapters.strip().split("\n") if ch.strip()]
-                            add_chapters_bulk(svc_id, chapter_list)
-                        if new_guideline:
-                            add_guideline(svc_id, f"{product_name} 지침", new_guideline)
-                        if cover:
-                            add_template(svc_id, "cover", "표지", save_uploaded_file(cover, f"{product_name}_cover"))
-                        if bg:
-                            add_template(svc_id, "background", "내지", save_uploaded_file(bg, f"{product_name}_bg"))
-                        if info:
-                            add_template(svc_id, "info", "안내지", save_uploaded_file(info, f"{product_name}_info"))
-                        st.success(f"'{product_name}' 등록됨!")
-                        st.session_state.show_new_product = False
-                        clear_service_cache()
-                        st.rerun()
+                    with st.spinner("등록 중..."):
+                        result = add_service(product_name, "", None, **font_settings)
+                        if result.get("success"):
+                            svc_id = result["id"]
+                            if new_chapters:
+                                chapter_list = [ch.strip() for ch in new_chapters.strip().split("\n") if ch.strip()]
+                                add_chapters_bulk(svc_id, chapter_list)
+                            if new_guideline:
+                                add_guideline(svc_id, f"{product_name} 지침", new_guideline)
+                            if cover:
+                                add_template(svc_id, "cover", "표지", save_uploaded_file(cover, f"{product_name}_cover"))
+                            if bg:
+                                add_template(svc_id, "background", "내지", save_uploaded_file(bg, f"{product_name}_bg"))
+                            if info:
+                                add_template(svc_id, "info", "안내지", save_uploaded_file(info, f"{product_name}_info"))
+                            clear_service_cache()
+                    st.success(f"'{product_name}' 등록됨!")
+                    st.session_state.show_new_product = False
+                    st.rerun()
             st.markdown("---")
         
         st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
@@ -1662,45 +1662,45 @@ def show_service_edit_form(svc: dict, prefix: str):
     col1, col2 = st.columns(2)
     with col1:
         if st.button("💾 저장", key=f"{prefix}_save_{svc_id}", type="primary", use_container_width=True):
-            # 캐시 먼저 초기화 (중복 방지)
-            clear_service_cache()
-            
-            # font_settings를 session_state에서 가져오기
-            settings_key = f"{prefix}_{svc_id}_font_settings"
-            font_settings = st.session_state.get(settings_key, {
-                "font_family": "NanumGothic", "font_size_title": 24, "font_size_subtitle": 16,
-                "font_size_body": 12, "letter_spacing": 0, "line_height": 180, "char_width": 100,
-                "margin_top": 25, "margin_bottom": 25, "margin_left": 25, "margin_right": 25,
-                "target_pages": 30
-            })
-            
-            # 기존 목차 배치 삭제
-            delete_chapters_by_service(svc_id)
-            
-            # 새 목차 배치 추가
-            chapter_list = [ch.strip() for ch in edit_chapters.strip().split("\n") if ch.strip()]
-            add_chapters_bulk(svc_id, chapter_list)
-            
-            # 서비스 업데이트
-            update_service(svc_id, name=edit_name, **font_settings)
-            
-            # 지침 업데이트
-            fresh_guidelines = get_guidelines_by_service(svc_id)
-            if fresh_guidelines:
-                update_guideline(fresh_guidelines[0]['id'], fresh_guidelines[0]['title'], edit_guideline)
-            elif edit_guideline:
-                add_guideline(svc_id, f"{edit_name} 지침", edit_guideline)
-            
-            # 템플릿 업데이트
-            fresh_templates = get_templates_by_service(svc_id)
-            for tt in ["cover", "background", "info"]:
-                new_file = st.session_state.get(f"{prefix}_{tt}_{svc_id}")
-                if new_file:
-                    for t in fresh_templates:
-                        if t['template_type'] == tt:
-                            delete_template(t['id'])
-                    add_template(svc_id, tt, TEMPLATE_TYPES[tt], save_uploaded_file(new_file, f"{edit_name}_{tt}"))
-            
+            with st.spinner("저장 중..."):
+                # font_settings를 session_state에서 가져오기
+                settings_key = f"{prefix}_{svc_id}_font_settings"
+                font_settings = st.session_state.get(settings_key, {
+                    "font_family": "NanumGothic", "font_size_title": 24, "font_size_subtitle": 16,
+                    "font_size_body": 12, "letter_spacing": 0, "line_height": 180, "char_width": 100,
+                    "margin_top": 25, "margin_bottom": 25, "margin_left": 25, "margin_right": 25,
+                    "target_pages": 30
+                })
+                
+                # 1. 먼저 모든 DB 작업 수행 (캐시 초기화 전)
+                # 목차 업데이트 (삭제 후 추가)
+                delete_chapters_by_service(svc_id)
+                chapter_list = [ch.strip() for ch in edit_chapters.strip().split("\n") if ch.strip()]
+                add_chapters_bulk(svc_id, chapter_list)
+                
+                # 서비스 업데이트
+                update_service(svc_id, name=edit_name, **font_settings)
+                
+                # 지침 업데이트 (DB 직접 조회 - 캐시 우회)
+                fresh_guidelines = get_guidelines_by_service(svc_id)
+                if fresh_guidelines:
+                    update_guideline(fresh_guidelines[0]['id'], fresh_guidelines[0]['title'], edit_guideline)
+                elif edit_guideline:
+                    add_guideline(svc_id, f"{edit_name} 지침", edit_guideline)
+                
+                # 템플릿 업데이트 (파일 있을 때만)
+                fresh_templates = get_templates_by_service(svc_id)
+                for tt in ["cover", "background", "info"]:
+                    new_file = st.session_state.get(f"{prefix}_{tt}_{svc_id}")
+                    if new_file:
+                        for t in fresh_templates:
+                            if t['template_type'] == tt:
+                                delete_template(t['id'])
+                        add_template(svc_id, tt, TEMPLATE_TYPES[tt], save_uploaded_file(new_file, f"{edit_name}_{tt}"))
+                
+                # 2. 모든 작업 완료 후 캐시 한번에 초기화
+                clear_service_cache()
+                
             st.success("저장됨!")
             st.rerun()
     with col2:
@@ -1959,35 +1959,44 @@ def show_service_work():
                 
                 if can_save:
                     if st.button("💾 상품 저장", type="primary", use_container_width=True):
-                        my_chapters = st.session_state.get('my_ch', '')
-                        my_guide = st.session_state.get('my_g', '')
-                        font_settings = render_font_settings("new_my") if 'font_settings' not in dir() else font_settings
-                        
-                        result = add_service(my_name, "", user['id'], **font_settings)
-                        if result.get("success"):
-                            svc_id = result["id"]
-                            chapter_list = [ch.strip() for ch in my_chapters.strip().split("\n") if ch.strip()]
-                            add_chapters_bulk(svc_id, chapter_list)
-                            if my_guide:
-                                add_guideline(svc_id, f"{my_name} 지침", my_guide)
+                        with st.spinner("저장 중..."):
+                            my_chapters = st.session_state.get('my_ch', '')
+                            my_guide = st.session_state.get('my_g', '')
                             
-                            # 이미지 업로드 처리
-                            my_cover = st.session_state.get('my_cover')
-                            my_bg = st.session_state.get('my_bg')
-                            my_info = st.session_state.get('my_info')
+                            # font_settings를 session_state에서 가져오기
+                            settings_key = "new_my_font_settings"
+                            font_settings = st.session_state.get(settings_key, {
+                                "font_family": "NanumGothic", "font_size_title": 24, "font_size_subtitle": 16,
+                                "font_size_body": 12, "letter_spacing": 0, "line_height": 180, "char_width": 100,
+                                "margin_top": 25, "margin_bottom": 25, "margin_left": 25, "margin_right": 25,
+                                "target_pages": 30
+                            })
                             
-                            if my_cover:
-                                add_template(svc_id, "cover", "표지", save_uploaded_file(my_cover, f"{my_name}_cover"))
-                            if my_bg:
-                                add_template(svc_id, "background", "내지", save_uploaded_file(my_bg, f"{my_name}_bg"))
-                            if my_info:
-                                add_template(svc_id, "info", "안내지", save_uploaded_file(my_info, f"{my_name}_info"))
-                            
-                            st.success(f"✅ '{my_name}' 저장됨!")
-                            clear_service_cache()
-                            st.session_state.individual_mode = 'select'
-                            st.session_state.selected_individual_service = svc_id
-                            st.rerun()
+                            result = add_service(my_name, "", user['id'], **font_settings)
+                            if result.get("success"):
+                                svc_id = result["id"]
+                                chapter_list = [ch.strip() for ch in my_chapters.strip().split("\n") if ch.strip()]
+                                add_chapters_bulk(svc_id, chapter_list)
+                                if my_guide:
+                                    add_guideline(svc_id, f"{my_name} 지침", my_guide)
+                                
+                                # 이미지 업로드 처리
+                                my_cover = st.session_state.get('my_cover')
+                                my_bg = st.session_state.get('my_bg')
+                                my_info = st.session_state.get('my_info')
+                                
+                                if my_cover:
+                                    add_template(svc_id, "cover", "표지", save_uploaded_file(my_cover, f"{my_name}_cover"))
+                                if my_bg:
+                                    add_template(svc_id, "background", "내지", save_uploaded_file(my_bg, f"{my_name}_bg"))
+                                if my_info:
+                                    add_template(svc_id, "info", "안내지", save_uploaded_file(my_info, f"{my_name}_info"))
+                                
+                                clear_service_cache()
+                                st.session_state.individual_mode = 'select'
+                                st.session_state.selected_individual_service = svc_id
+                        st.success(f"✅ '{my_name}' 저장됨!")
+                        st.rerun()
                 else:
                     st.button("💾 상품 저장", type="secondary", use_container_width=True, disabled=True)
                     st.caption("⚠️ 상품명과 목차를 입력하세요")
