@@ -1841,34 +1841,62 @@ def show_service_work():
         # ===== 기존 상품 선택 모드 =====
         if st.session_state.individual_mode == 'select' and my_services:
             st.markdown("**📦 내 상품 목록**")
+            st.caption("사용할 상품을 선택하세요")
             
             # 상품 목록을 카드 형태로 표시
             for idx, svc in enumerate(my_services):
                 chapters = cached_get_chapters(svc['id'])
+                is_selected = st.session_state.get('selected_individual_service') == svc['id']
                 
-                col_info, col_action = st.columns([4, 1])
-                with col_info:
-                    st.markdown(f"**{svc['name']}** (목차 {len(chapters)}개)")
-                with col_action:
-                    if st.button("선택", key=f"sel_svc_{svc['id']}", use_container_width=True):
-                        st.session_state.selected_individual_service = svc['id']
-                        st.rerun()
-                
-                # 선택된 상품이면 수정 폼 표시
-                if st.session_state.get('selected_individual_service') == svc['id']:
-                    selected_service = svc
-                    st.success(f"✅ '{svc['name']}' 선택됨")
-                    with st.expander("✏️ 상품 수정", expanded=False):
-                        show_service_edit_form(svc, "my")
+                # 선택된 상품은 컨테이너로 강조
+                if is_selected:
+                    with st.container():
+                        st.markdown(f"""
+                        <div style="background: linear-gradient(135deg, #1e5128 0%, #2d7a3e 100%); 
+                                    padding: 15px; border-radius: 10px; margin: 5px 0;
+                                    border-left: 4px solid #4CAF50;">
+                            <span style="color: #4CAF50; font-weight: bold;">✅ 선택됨</span>
+                            <span style="color: white; font-size: 1.1rem; margin-left: 10px;">
+                                <b>{svc['name']}</b>
+                            </span>
+                            <span style="color: #aaa; margin-left: 10px;">목차 {len(chapters)}개</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        selected_service = svc
+                        
+                        # 수정 버튼 (선택된 상품만)
+                        with st.expander("✏️ 상품 수정", expanded=False):
+                            show_service_edit_form(svc, "my")
+                else:
+                    # 선택 안된 상품
+                    col_info, col_action = st.columns([4, 1])
+                    with col_info:
+                        st.markdown(f"""
+                        <div style="padding: 10px 0;">
+                            <span style="color: #ccc; font-size: 1rem;">
+                                <b>{svc['name']}</b>
+                            </span>
+                            <span style="color: #888; margin-left: 10px;">목차 {len(chapters)}개</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    with col_action:
+                        if st.button("선택", key=f"sel_svc_{svc['id']}", type="primary", use_container_width=True):
+                            st.session_state.selected_individual_service = svc['id']
+                            st.rerun()
                 
                 st.markdown("---")
             
-            # 선택된 상품 가져오기
-            if st.session_state.get('selected_individual_service'):
+            # 선택된 상품 가져오기 (selected_service가 설정 안된 경우)
+            if st.session_state.get('selected_individual_service') and 'selected_service' not in dir():
                 for svc in my_services:
                     if svc['id'] == st.session_state.selected_individual_service:
                         selected_service = svc
                         break
+            
+            # 선택 안내 (아무것도 선택 안했을 때)
+            if not st.session_state.get('selected_individual_service'):
+                st.info("👆 위 목록에서 상품을 선택하세요")
         
         # ===== 새 상품 만들기 모드 =====
         elif st.session_state.individual_mode == 'create' or not my_services:
