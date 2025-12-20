@@ -118,7 +118,7 @@ st.markdown("""
     .stTextArea small { display: none !important; }
     
     /* 컴팩트 레이아웃 - 여백 최소화 */
-    .block-container { padding-top: 1rem !important; }
+    .block-container { padding-top: 2.5rem !important; }
     div[data-testid="stVerticalBlock"] > div { gap: 0.3rem !important; }
     .stButton > button { padding: 0.4rem 1rem !important; min-height: 2.2rem !important; }
     hr { margin: 0.5rem 0 !important; border-color: rgba(255,255,255,0.1) !important; }
